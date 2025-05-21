@@ -1,7 +1,6 @@
 import { TMDB_API_CONFIG } from '../config.js';
 import { normalizeTitleForSearch } from '../utils/titleSanitizer.js';
 
-// Define a consistent logging prefix for this module
 const LOG_PREFIX = "[TMDBApi]";
 
 // --- Internal Helper Functions ---
