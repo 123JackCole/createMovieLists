@@ -21,9 +21,7 @@ process.on('unhandledRejection', (reason, promise) => {
     if (reason instanceof Error && reason.stack) {
         console.error(reason.stack);
     }
-    // Consider exiting if an unhandled rejection is critical, though the main function's
-    // error handling should ideally catch primary operational issues.
-    // process.exitCode = 1; // Or process.exit(1);
+    process.exit(1);
 });
 
 /**
@@ -41,7 +39,7 @@ process.on('unhandledRejection', (reason, promise) => {
  */
 const main = async () => {
     console.log(`${LOG_PREFIX} INFO: Starting the movie list creation script...`);
-    let browser; // Declare browser instance variable in the outer scope for access in finally
+    let browser;
 
     try {
         // --- Browser Initialization ---
@@ -92,7 +90,7 @@ const main = async () => {
                 // If an error occurs during browser close, and no other error has set the exit code,
                 // set it now to indicate a problem.
                 if (!process.exitCode) { 
-                    process.exitCode = 1;
+                    process.exit(1);
                 }
             }
         }
@@ -105,16 +103,15 @@ main().then(() => {
     // This block executes after main() has completed (either resolved or its catch/finally handled errors).
     if (typeof process.exitCode === 'undefined' || process.exitCode === 0) {
         console.log(`\n${LOG_PREFIX} FINAL: Script execution cycle completed successfully.`);
-        // process.exit(0); // Explicitly exit with success code; often not needed as Node.js will exit when event loop is empty.
+        process.exit(0); // Explicitly exit with success code; often not needed as Node.js will exit when event loop is empty.
     } else {
         console.log(`\n${LOG_PREFIX} FINAL: Script execution cycle completed with error code: ${process.exitCode}.`);
-        // process.exit(process.exitCode); // Explicitly exit with the set error code.
+        process.exit(process.exitCode); // Explicitly exit with the set error code.
     }
 }).catch(unhandledErrorFromMainCall => {
     // This catch is an ultimate safeguard if the main() promise itself rejects in an unhandled way
     // (e.g., if main() was not async and threw, or if .then()/.catch() logic itself had an issue).
     // With the current structure of main(), errors should be caught internally or by the unhandledRejection handler.
     console.error(`${LOG_PREFIX} CRITICAL: Unhandled error from main() function call chain:`, unhandledErrorFromMainCall);
-    process.exitCode = 1; // Ensure error exit
-    // process.exit(1);
+    process.exit(1);
 });
