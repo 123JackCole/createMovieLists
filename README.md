@@ -1,5 +1,4 @@
-TMDB Movie List Creator & Website Scraper
-Summary
+# TMDB Movie List Creator & Website Scraper
 
 This script automates the creation and updating of movie lists on The Movie Database (TMDB). I mainly use these lists as import lists on [Radarr](https://radarr.video/). Using TMDB lists for importing media is not yet supported by [Sonarr](https://sonarr.tv/), so the script currently only is for movies, not shows. This could change if Sonarr adds support in the future.
 
@@ -48,7 +47,7 @@ Features
 
     Provides detailed console logging of its operations.
 
-Screenshots
+## Screenshots
 
 Example running of script in the console.
 ![image](https://github.com/user-attachments/assets/335f8b48-deef-474d-b560-bdedb844251e)
@@ -61,16 +60,16 @@ Example TMDB list after script has run.
 Example failure report.
 ![image](https://github.com/user-attachments/assets/3a6682c1-5765-4b17-a4a2-8b280fc55b83)
 
-Setup Instructions
+## Setup Instructions
 
 Follow these steps to set up and run the script:
-1. Prerequisites
+### 1. Prerequisites
 
     Node.js: Ensure you have Node.js installed (preferably a recent LTS version). You can download it from nodejs.org.
 
     npm or yarn: These package managers come with Node.js.
 
-2. Get the Code
+### 2. Get the Code
 
 Clone this repository or download the script files to your local machine.
 
@@ -78,7 +77,7 @@ git clone <your-repository-url>
 cd <your-project-directory>
 
 (If you don't have a Git repository, simply place all the .js files and the package.json in a directory.)
-3. Install Dependencies
+### 3. Install Dependencies
 
 Navigate to the project directory in your terminal and run:
 
@@ -89,7 +88,7 @@ or if you use yarn:
 yarn install
 
 This will install all necessary packages listed in package.json, including puppeteer-extra, dotenv, open, etc.
-4. Environment Variables
+### 4. Environment Variables
 
 The script uses environment variables for TMDB API credentials. You'll need two pieces of information from TMDB:
 
@@ -99,16 +98,16 @@ The script uses environment variables for TMDB API credentials. You'll need two 
 
 Create a file named .env in the root directory of the project. Add your TMDB credentials to this file:
 
-# .env file
+#### .env file
 
-# Your TMDB API v4 Read Access Token (for initiating user authentication)
+#### Your TMDB API v4 Read Access Token (for initiating user authentication)
 TMDB_READ_ACCESS_TOKEN=your_v4_read_access_token_here
 
-# Your TMDB API Key (v3 - used for searching movies/collections)
+#### Your TMDB API Key (v3 - used for searching movies/collections)
 TMDB_API_KEY=your_v3_api_key_here
 
 Important: Add .env to your .gitignore file to prevent accidentally committing your secret credentials to version control.
-5. Configuration (Optional Review)
+### 5. Configuration
 
 The config.js file contains URLs for the websites to be scraped and CSS selectors used by the scrapers. If the structure of these websites changes, you may need to update the selectors in this file.
 Running the Script
@@ -129,16 +128,16 @@ On the very first run (or if your TMDB access token needs re-authentication), th
     After approving in the browser, return to the terminal and press ENTER to continue the script.
 
 The script will then proceed to scrape websites and update/create your TMDB lists. Subsequent runs might not require this browser authentication step if the access token is still valid or if a refresh mechanism were implemented (currently, it re-authenticates each time for simplicity).
-Adding a New Site to Scrape
+## Adding a New Site to Scrape
 
 To add a new website for the script to scrape movies from, follow these steps:
-1. Create a New Scraper File
+### 1. Create a New Scraper File
 
     In the scrapers/ directory, create a new JavaScript file (e.g., newSiteScraper.js).
 
     This file will contain the Puppeteer logic specific to scraping the new site.
 
-2. Write the Scraper Function
+### 2. Write the Scraper Function
 
 Your new scraper function should follow this general structure:
 
@@ -203,7 +202,7 @@ export const scrapeNewSite = async (browser, url) => {
     }
 };
 
-3. Add Configuration to config.js
+### 3. Add Configuration to config.js
 
     Add URL:
     In config.js, add the URL for the new site to the SCRAPER_URLS object:
@@ -223,7 +222,7 @@ export const scrapeNewSite = async (browser, url) => {
         // Add selectors for set detail pages if applicable
     };
 
-4. Update scrapers/index.js
+### 4. Update scrapers/index.js
 
     Import your new scraper function.
 
