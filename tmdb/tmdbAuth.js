@@ -90,8 +90,10 @@ export const authenticateForTMDB = async () => {
             throw new Error(`TMDB API Error: Did not receive access_token or account_id in response. Data: ${JSON.stringify(accessTokenData)}`);
         }
 
+        const expirationTime = new Date(new Date().getTime() + 60 * 60 * 1000); // 1 hour in milliseconds
         console.log(`\n${LOG_PREFIX} INFO: Access token granted successfully!`);
-        console.log(`${LOG_PREFIX} INFO: User Access Token: ${accessTokenData.access_token}`); // Be mindful of logging sensitive tokens
+        console.log(`${LOG_PREFIX} INFO: Estimated token expiration at: ${expirationTime.toLocaleString()}`);
+        // console.log(`${LOG_PREFIX} INFO: User Access Token: ${accessTokenData.access_token}`); // uncomment to debug
         console.log(`${LOG_PREFIX} INFO: Account ID: ${accessTokenData.account_id}`);
 
         // Return the full object containing access_token, account_id, and success status.
