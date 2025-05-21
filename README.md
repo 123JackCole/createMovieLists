@@ -50,14 +50,17 @@ Features
 ## Screenshots
 
 Example running of script in the console.
+
 ![image](https://github.com/user-attachments/assets/335f8b48-deef-474d-b560-bdedb844251e)
 
 
 Example TMDB list after script has run.
+
 ![image](https://github.com/user-attachments/assets/e6355c12-7313-4576-b45a-ce651b5553ab)
 
 
 Example failure report.
+
 ![image](https://github.com/user-attachments/assets/3a6682c1-5765-4b17-a4a2-8b280fc55b83)
 
 ## Setup Instructions
