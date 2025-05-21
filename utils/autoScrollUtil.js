@@ -1,5 +1,3 @@
-// utils/autoScrollUtil.js
-
 /**
  * Asynchronously scrolls a Puppeteer page to the bottom, attempting to load all dynamically
  * loaded content (e.g., "infinite scroll" pages).

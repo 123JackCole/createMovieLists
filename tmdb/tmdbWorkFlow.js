@@ -1,9 +1,8 @@
-// tmdb/tmdbWorkFlow.js
 import { authenticateForTMDB } from './tmdbAuth.js';
 import { createOrUpdateList } from './tmdbApi.js'; // This returns detailed stats
 import { writeFailureReport } from '../utils/reportWriter.js';
 
-const LOG_PREFIX = "[TMDBWorkflow]"; // Define a prefix for logs from this module
+const LOG_PREFIX = "[TMDBWorkflow]";
 
 /**
  * Processes an array of scraped movie data, authenticates with TMDB,

@@ -1,9 +1,7 @@
-// scrapers/scrapeMastersOfCinema.js
 import { autoScroll } from '../utils/autoScrollUtil.js';    // Utility for scrolling pages with dynamic content
 import { ignoreMedia } from '../utils/ignoreMedia.js';      // Utility to block non-essential requests
 import { MASTERS_OF_CINEMA_SELECTORS } from '../config.js'; // Selectors from configuration
 
-// Define a consistent logging prefix for this module
 const LOG_PREFIX = "[MastersOfCinemaScraper]";
 
 /**

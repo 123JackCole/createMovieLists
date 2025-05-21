@@ -1,7 +1,5 @@
-// tmdb/tmdbAuth.js
 import open from 'open'; // Used to open the TMDB authorization URL in the user's browser.
 
-// Define a prefix for logs originating from this module for easier debugging.
 const LOG_PREFIX = "[TMDBAuth]";
 
 /**

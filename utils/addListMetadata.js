@@ -1,5 +1,3 @@
-// utils/addListMetadata.js
-
 /**
  * Takes arrays of scraped movie data from different sources and transforms them
  * into a structured array suitable for creating or updating TMDB lists.
@@ -13,6 +11,7 @@
  * @param {Array<{title: string, year: string|null}>} [scrapedData.vsMovies=[]] - Movies from Vinegar Syndrome (Blu-ray/DVD).
  * @param {Array<{title: string, year: string|null}>} [scrapedData.vs4kMovies=[]] - Movies from Vinegar Syndrome (4K UHD).
  * @param {Array<{title: string, year: string|null}>} [scrapedData.mocMovies=[]] - Movies from Masters of Cinema.
+ * @param {Array<{title: string, year: string|null}>} [scrapedData.siffMovies=[]] - SIFF Film Finder movies.
  * @returns {Array<{title: string, description: string, movieData: Array<{title: string, year: string|null}>}>}
  * An array of objects, where each object represents a list to be created/updated on TMDB.
  * Returns an empty array if no movie data is provided for any source.
@@ -22,7 +21,8 @@ export const addListMetadata = ({
     cc4kMovies = [],
     vsMovies = [],
     vs4kMovies = [],
-    mocMovies = []
+    mocMovies = [],
+    siffMovies = []
 }) => {
     // Define metadata (titles and descriptions) for each TMDB list that will be created/updated.
     // These could also be moved to a central config file if they become numerous or need frequent changes.
@@ -40,6 +40,9 @@ export const addListMetadata = ({
     
     const mocTitle = 'The Masters of Cinema Movie List';
     const mocDescription = 'All movies in the Masters of Cinema. Source: https://eurekavideo.co.uk/masters-of-cinema/';
+
+    const siffTitle = 'SIFF 2025 Film Festival';
+    const siffDescription = 'Movies in the 2025 SIFF film festival. Source: https://www.siff.net/festival/film-finder-2025';
 
     // Initialize an array to hold the structured data for each list.
     const tmdbListData = [];
@@ -82,6 +85,13 @@ export const addListMetadata = ({
             title: mocTitle,
             description: mocDescription,
             movieData: mocMovies
+        });
+    }
+    if (siffMovies?.length > 0) {
+        tmdbListData.push({ 
+            title: siffTitle, 
+            description: siffDescription, 
+            movieData: siffMovies 
         });
     }
     

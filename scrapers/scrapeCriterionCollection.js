@@ -1,8 +1,6 @@
-// scrapers/criterionScraper.js
 import { ignoreMedia } from "../utils/ignoreMedia.js";
 import { CRITERION_SELECTORS, CRITERION_COLLECTION_DETAIL_SELECTORS } from '../config.js';
 
-// Define a consistent logging prefix for this module
 const LOG_PREFIX = "[CriterionScraper]";
 
 /**

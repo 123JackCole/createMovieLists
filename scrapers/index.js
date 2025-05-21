@@ -1,10 +1,9 @@
-// scrapers/index.js
 import { scrapeCriterionCollection } from './scrapeCriterionCollection.js';
 import { scrapeVinegarSyndrome } from './scrapeVinegarSyndrome.js';
 import { scrapeMastersOfCinema } from './scrapeMastersOfCinema.js';
+import { scrapeSiff } from './scrapeSIFF.js';
 import { SCRAPER_URLS } from '../config.js'; // URLs for each scraping task
 
-// Define a consistent logging prefix for this module
 const LOG_PREFIX = "[ScrapersOrchestrator]";
 
 /**
@@ -41,7 +40,8 @@ export const scrapeWebsites = async (browser) => {
         { name: "Criterion Collection (4K UHD)", func: scrapeCriterionCollection, url: SCRAPER_URLS.CRITERION_4K, key: 'cc4kMovies' },
         { name: "Vinegar Syndrome (Blu-ray/DVD)", func: scrapeVinegarSyndrome, url: SCRAPER_URLS.VINEGAR_SYNDROME, key: 'vsMovies' },
         { name: "Vinegar Syndrome (4K UHD)", func: scrapeVinegarSyndrome, url: SCRAPER_URLS.VINEGAR_SYNDROME_4K, key: 'vs4kMovies' },
-        { name: "Masters of Cinema", func: scrapeMastersOfCinema, url: SCRAPER_URLS.MASTERS_OF_CINEMA, key: 'mocMovies' }
+        { name: "Masters of Cinema", func: scrapeMastersOfCinema, url: SCRAPER_URLS.MASTERS_OF_CINEMA, key: 'mocMovies' },
+        { name: "SIFF Film Finder", func: scrapeSiff, url: SCRAPER_URLS.SIFF, key: 'siffMovies' }
     ];
 
     // Create an array of promises by calling each scraper function.

@@ -1,5 +1,3 @@
-// utils/ignoreMedia.js
-
 /**
  * Configures a Puppeteer page to intercept and abort requests for common media types
  * (images, stylesheets, fonts, media) to potentially speed up page loading and reduce bandwidth usage

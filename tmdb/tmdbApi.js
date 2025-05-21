@@ -1,4 +1,3 @@
-// tmdbApi.js
 import { TMDB_API_CONFIG } from '../config.js';
 import { normalizeTitleForSearch } from '../utils/titleSanitizer.js';
 

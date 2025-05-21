@@ -28,7 +28,8 @@ export const SCRAPER_URLS = {
     CRITERION_4K: 'https://www.criterion.com/shop/browse/list?sort=spine_number&format=4k_ultra_hd',
     VINEGAR_SYNDROME: 'https://vinegarsyndrome.com/collections/all-vinegar-syndrome-releases?filter.p.product_type=Blu-ray&filter.p.product_type=Blu-ray%2FDVD%20Combo&filter.p.product_type=DVD&filter.p.product_type=VHS&page=',
     VINEGAR_SYNDROME_4K: 'https://vinegarsyndrome.com/collections/all-vinegar-syndrome-releases?filter.p.product_type=4k%20Ultra%20HD%2FBlu-ray%20Combo&page=',
-    MASTERS_OF_CINEMA: 'https://eurekavideo.co.uk/masters-of-cinema/#page-'
+    MASTERS_OF_CINEMA: 'https://eurekavideo.co.uk/masters-of-cinema/#page-',
+    SIFF: 'https://www.siff.net/festival/film-finder-2025?page='
 };
 
 /**
@@ -90,6 +91,21 @@ export const MASTERS_OF_CINEMA_SELECTORS = {
     MOVIE_ITEM: '.data-grid-item',                  // Each individual movie card
     TITLE: '.title',                                // The title text within a card
     DETAILS_ELEMENT: 'small'                        // Elements containing director and year/country info
+};
+
+/**
+ * CSS selectors for scraping the SIFF Film Finder website.
+ * @type {object}
+ * @property {string} FILM_LIST_CONTAINER - Selector for the main div holding all film items (e.g., "div.row.filtered-index").
+ * @property {string} MOVIE_ITEM_WRAPPER - Selector for the wrapper of each individual film item (e.g., "div.col-xs-6.col-sm-4.col-md-3").
+ * @property {string} TITLE - Selector for the film title element within a movie item.
+ * @note SIFF list pages typically do not display the release year directly with each item.
+ * The scraper for this site primarily extracts titles.
+ */
+export const SIFF_SELECTORS = {
+    FILM_LIST_CONTAINER: 'div.row.filtered-index', // The div that contains all the film columns
+    MOVIE_ITEM_WRAPPER: 'div.row.filtered-index > div.col-xs-6', // Each column holding a film
+    TITLE: 'a.tw-group span span.tw-text-2xl.tw-font-bold' 
 };
 
 // -----------------------------------------------------------------------------
