@@ -1,66 +1,101 @@
+// tmdb/tmdbWorkFlow.js
 import { authenticateForTMDB } from './tmdbAuth.js';
-import { createOrUpdateList } from './tmdbApi.js'; // This now returns more detailed stats
+import { createOrUpdateList } from './tmdbApi.js'; // This returns detailed stats
 import { writeFailureReport } from '../utils/reportWriter.js';
 
+const LOG_PREFIX = "[TMDBWorkflow]"; // Define a prefix for logs from this module
+
+/**
+ * Processes an array of scraped movie data, authenticates with TMDB,
+ * then creates or updates TMDB lists for each data set.
+ * It collects statistics on the processing of each list and generates a summary report
+ * as well as a detailed report for movie ID lookup failures.
+ *
+ * @async
+ * @function processScrapedData
+ * @param {Array<{title: string, description: string, movieData: Array<{title: string, year: string|null}>}>} scrapedDataArray
+ * An array of objects, where each object represents a list to be processed.
+ * Each object should contain:
+ * - `title`: The title for the TMDB list.
+ * - `description`: The description for the TMDB list.
+ * - `movieData`: An array of movie objects (e.g., `{title: string, year: string|null}`) scraped from a source.
+ * @returns {Promise<void>} A promise that resolves when all processing is complete.
+ * The function primarily performs side effects like logging, API calls, and file writing.
+ */
 export const processScrapedData = async (scrapedDataArray) => {
     let accessToken;
     try {
+        console.log(`${LOG_PREFIX} INFO: Authenticating with TMDB...`);
         accessToken = await authenticateForTMDB();
+        console.log(`${LOG_PREFIX} INFO: TMDB Authentication successful.`);
     } catch (authError) {
-        console.error("TMDB Authentication failed. Cannot process lists.", authError.message);
-        return;
+        console.error(`${LOG_PREFIX} ERROR: TMDB Authentication failed. Cannot process lists. Error: ${authError.message}`, authError.stack || '');
+        return; // Stop processing if authentication fails
     }
 
-    const overallProcessingStats = []; // Array to store stats for each list
+    // Array to store detailed statistics for each list processed
+    const overallProcessingStats = [];
 
+    // Loop through each list's data prepared from scraping
     for (const listData of scrapedDataArray) {
-        const listTitle = listData.title;
+        const listTitle = listData.title; // For cleaner access
+
+        // Initialize stats for the current list
         let listStats = {
             title: listTitle,
             scrapedItemsCount: listData.movieData?.length || 0,
             tmdbIdsFoundCount: 0,
             itemsAttemptedAddToTmdb: 0,
             itemsSuccessfullyAddedToTmdb: 0,
-            status: 'Pending',
+            status: 'Pending', // Initial status
             errorReason: null,
             movieLookupFailures: { notFoundTitles: [], failedToSearchTitles: [] }
         };
 
-        if (!listTitle) {
-            console.error("Skipping invalid list data (missing title):", listData);
-            listStats.status = 'Failed';
-            listStats.errorReason = 'Invalid list data object (missing title)';
+        // Validate essential listData properties
+        if (!listTitle || !listData.movieData) {
+            console.error(`${LOG_PREFIX} ERROR: Skipping invalid list data (missing title or movieData):`, listData);
+            listStats.status = 'Skipped (Invalid Data)';
+            listStats.errorReason = 'Invalid list data object (missing title or movieData)';
             overallProcessingStats.push(listStats);
-            continue;
+            continue; // Move to the next listData item
         }
         
         try {
-            console.log(`\nProcessing list: "${listTitle}"...`);
-            // createOrUpdateList now returns an object with detailed stats and failures
-            const result = await createOrUpdateList(accessToken, listData);
+            console.log(`\n${LOG_PREFIX} INFO: Processing list: "${listTitle}"...`);
+            // createOrUpdateList handles getting TMDB IDs, creating/updating the list, and adding items.
+            // It returns a detailed statistics object.
+            const resultFromApi = await createOrUpdateList(accessToken, listData);
             
-            listStats.tmdbIdsFoundCount = result.tmdbIdsFoundCount; // From the re-call of getMovieIds in createOrUpdateList
-            listStats.itemsAttemptedAddToTmdb = result.itemsAttemptedCount;
-            listStats.itemsSuccessfullyAddedToTmdb = result.itemsSuccessfullyAddedCount;
-            listStats.movieLookupFailures = result.movieLookupFailures;
-            listStats.status = 'Processed (with potential item failures - see report/logs)';
+            // Populate listStats from the result
+            listStats.tmdbIdsFoundCount = resultFromApi.tmdbIdsFoundCount || 0;
+            listStats.itemsAttemptedAddToTmdb = resultFromApi.itemsAttemptedCount || 0;
+            listStats.itemsSuccessfullyAddedToTmdb = resultFromApi.itemsSuccessfullyAddedCount || 0;
+            listStats.movieLookupFailures = resultFromApi.movieLookupFailures || { notFoundTitles: [], failedToSearchTitles: [] };
+            listStats.status = 'Processed'; // Mark as processed
+            if (listStats.movieLookupFailures.notFoundTitles.length > 0 || listStats.movieLookupFailures.failedToSearchTitles.length > 0) {
+                listStats.status += ' (with movie lookup failures - see report)';
+            }
+            if (listStats.itemsAttemptedAddToTmdb > 0 && listStats.itemsSuccessfullyAddedToTmdb < listStats.itemsAttemptedAddToTmdb) {
+                 listStats.status += ' (with item addition failures - see logs)';
+            }
             
         } catch (error) {
-            console.error(`Failed to critically process list "${listTitle}": ${error.message}`);
+            console.error(`${LOG_PREFIX} ERROR: Failed to critically process list "${listTitle}": ${error.message}`);
             listStats.status = 'Failed Critically';
             listStats.errorReason = error.message;
-            // Capture stats even on failure if they were attached to the error object
+            // Capture stats even on failure if they were attached to the error object by createOrUpdateList
             if (error.scrapedItemsCount !== undefined) listStats.scrapedItemsCount = error.scrapedItemsCount;
             if (error.tmdbIdsFoundCount !== undefined) listStats.tmdbIdsFoundCount = error.tmdbIdsFoundCount;
             if (error.itemsAttemptedCount !== undefined) listStats.itemsAttemptedAddToTmdb = error.itemsAttemptedCount;
             if (error.itemsSuccessfullyAddedCount !== undefined) listStats.itemsSuccessfullyAddedToTmdb = error.itemsSuccessfullyAddedCount;
             if (error.movieLookupFailures) listStats.movieLookupFailures = error.movieLookupFailures;
         }
-        overallProcessingStats.push(listStats);
+        overallProcessingStats.push(listStats); // Add this list's stats to the overall collection
     }
 
-    // --- List Processing Summary ---
-    console.log("\n--- Detailed List Processing Summary ---");
+    // --- Generate and Log Detailed List Processing Summary ---
+    console.log(`\n${LOG_PREFIX} INFO: --- Detailed List Processing Summary ---`);
     const allMovieLookupFailuresForReport = {};
     let grandTotalScraped = 0;
     let grandTotalTmdbIdsFound = 0;
@@ -68,22 +103,26 @@ export const processScrapedData = async (scrapedDataArray) => {
     let grandTotalSuccessfullyAdded = 0;
 
     overallProcessingStats.forEach(stats => {
-        console.log(`\nList: "${stats.title}"`);
-        console.log(`  Status: ${stats.status}`);
+        console.log(`\n  List: "${stats.title}"`);
+        console.log(`    Status: ${stats.status}`);
         if (stats.errorReason) {
-            console.log(`  Error: ${stats.errorReason.substring(0, 200)}...`); // Keep error summary brief
+            // Log only a snippet of the error reason in the summary for brevity
+            console.log(`    Error: ${stats.errorReason.substring(0, 200)}${stats.errorReason.length > 200 ? '...' : ''}`);
         }
-        console.log(`  Movies Scraped from Source: ${stats.scrapedItemsCount}`);
-        console.log(`  TMDB Movie IDs Found: ${stats.tmdbIdsFoundCount}`);
-        console.log(`  Items Attempted to Add/Update on TMDB: ${stats.itemsAttemptedAddToTmdb}`);
-        console.log(`  Items Reported as Successfully Added/Updated by TMDB: ${stats.itemsSuccessfullyAddedToTmdb}`);
+        console.log(`    Movies Scraped from Source: ${stats.scrapedItemsCount}`);
+        console.log(`    TMDB Movie IDs Found: ${stats.tmdbIdsFoundCount}`);
+        console.log(`    Items Attempted to Add/Update on TMDB: ${stats.itemsAttemptedAddToTmdb}`);
+        console.log(`    Items Reported as Successfully Added/Updated by TMDB: ${stats.itemsSuccessfullyAddedToTmdb}`);
         
+        // Aggregate grand totals
         grandTotalScraped += stats.scrapedItemsCount;
-        grandTotalTmdbIdsFound += stats.tmdbIdsFoundCount;
-        grandTotalAttemptedAdd += stats.itemsAttemptedAddToTmdb;
-        grandTotalSuccessfullyAdded += stats.itemsSuccessfullyAddedToTmdb;
+        grandTotalTmdbIdsFound += (stats.tmdbIdsFoundCount || 0); // Ensure NaN is not propagated
+        grandTotalAttemptedAdd += (stats.itemsAttemptedAddToTmdb || 0);
+        grandTotalSuccessfullyAdded += (stats.itemsSuccessfullyAddedToTmdb || 0);
 
-        if (stats.movieLookupFailures && (stats.movieLookupFailures.notFoundTitles.length > 0 || stats.movieLookupFailures.failedToSearchTitles.length > 0)) {
+        // Collect failures for the report file
+        if (stats.movieLookupFailures && 
+            (stats.movieLookupFailures.notFoundTitles?.length > 0 || stats.movieLookupFailures.failedToSearchTitles?.length > 0)) {
             allMovieLookupFailuresForReport[stats.title] = stats.movieLookupFailures;
         }
     });
@@ -95,9 +134,11 @@ export const processScrapedData = async (scrapedDataArray) => {
     console.log(`Total Items Successfully Added/Updated on TMDB: ${grandTotalSuccessfullyAdded}`);
     console.log("--- End of Summary ---");
 
+    // Write the detailed failure report file if there are any lookup failures
     if (Object.keys(allMovieLookupFailuresForReport).length > 0) {
         await writeFailureReport(allMovieLookupFailuresForReport);
     } else {
-        console.log("No movie ID lookup failures to report across all lists.");
+        console.log(`${LOG_PREFIX} INFO: No movie ID lookup failures to report across all lists.`);
     }
+    console.log(`${LOG_PREFIX} INFO: TMDB data processing finished.`);
 };

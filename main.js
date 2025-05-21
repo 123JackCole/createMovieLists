@@ -1,78 +1,120 @@
-import puppeteer from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-import 'dotenv/config';
+import puppeteer from 'puppeteer-extra'; // Puppeteer for browser automation
+import StealthPlugin from 'puppeteer-extra-plugin-stealth'; // Stealth plugin to make Puppeteer less detectable
+import 'dotenv/config'; // Loads environment variables from a .env file into process.env
 
-import { scrapeWebsites } from './scrapers/index.js';
-import { addListMetadata } from './utils/addListMetadata.js';
-import { processScrapedData } from './tmdb/tmdbWorkFlow.js';
+// --- Application Modules ---
+import { scrapeWebsites } from './scrapers/index.js';         // Orchestrates all website scraping
+import { addListMetadata } from './utils/addListMetadata.js'; // Structures scraped data for TMDB
+import { processScrapedData } from './tmdb/tmdbWorkFlow.js';  // Handles all TMDB API interactions
 
+// Define a consistent logging prefix for messages originating from this main process file
+const LOG_PREFIX = "[MainProcess]";
+
+// Apply the stealth plugin to Puppeteer to help avoid bot detection
 puppeteer.use(StealthPlugin());
 
+// --- Global Error Handling ---
+// Catch any unhandled promise rejections that might not have been caught locally in async functions.
+// This is a safety net.
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    console.error(`${LOG_PREFIX} ERROR: Unhandled Promise Rejection at:`, promise, 'Reason:', reason);
     if (reason instanceof Error && reason.stack) {
         console.error(reason.stack);
     }
+    // Consider exiting if an unhandled rejection is critical, though the main function's
+    // error handling should ideally catch primary operational issues.
+    // process.exitCode = 1; // Or process.exit(1);
 });
 
+/**
+ * Main asynchronous function to orchestrate the entire script's workflow:
+ * 1. Initializes and launches a Puppeteer browser instance.
+ * 2. Calls the `scrapeWebsites` module to scrape movie data from configured sources.
+ * 3. Calls `addListMetadata` to transform the raw scraped data into a format suitable for TMDB.
+ * 4. Calls `processScrapedData` to interact with the TMDB API (authenticate, create/update lists, add items).
+ * 5. Ensures the browser is closed in a `finally` block, regardless of success or failure.
+ * 6. Sets the process exit code based on whether an error occurred.
+ *
+ * @async
+ * @function main
+ * @returns {Promise<void>} A promise that resolves when the main process completes or an error is handled.
+ */
 const main = async () => {
-    console.log("Starting the movie list creation script...");
-    let browser;
+    console.log(`${LOG_PREFIX} INFO: Starting the movie list creation script...`);
+    let browser; // Declare browser instance variable in the outer scope for access in finally
 
     try {
-        console.log("Launching browser...");
+        // --- Browser Initialization ---
+        console.log(`${LOG_PREFIX} INFO: Launching Puppeteer browser...`);
         browser = await puppeteer.launch({
-            // headless: false // Useful for debugging
+            // headless: false, // Uncomment for debugging to see the browser UI
+            // args: ['--no-sandbox', '--disable-setuid-sandbox'] // Useful for some CI/Linux environments
         });
-        console.log("Browser launched.");
+        console.log(`${LOG_PREFIX} INFO: Browser launched successfully.`);
 
-        console.log("Scraping websites...");
-        const rawScrapedData = await scrapeWebsites(browser);
-        console.log("Finished scraping. Preparing data for TMDB...");
+        // --- Data Scraping ---
+        console.log(`${LOG_PREFIX} INFO: Starting website scraping process...`);
+        const rawScrapedData = await scrapeWebsites(browser); // Pass the browser instance to the scraper orchestrator
+        console.log(`${LOG_PREFIX} INFO: Finished scraping all websites.`);
 
-        const tmdbReadyData = addListMetadata(rawScrapedData);
-        console.log(`Prepared ${tmdbReadyData.length} lists for TMDB processing.`);
+        // --- Data Preparation ---
+        console.log(`${LOG_PREFIX} INFO: Preparing scraped data for TMDB processing...`);
+        const tmdbReadyData = addListMetadata(rawScrapedData); // Transform data
+        console.log(`${LOG_PREFIX} INFO: Prepared ${tmdbReadyData.length} lists for TMDB processing.`);
 
+        // --- TMDB Processing ---
         if (tmdbReadyData.length > 0) {
-            await processScrapedData(tmdbReadyData);
-            console.log("TMDB processing complete.");
+            console.log(`${LOG_PREFIX} INFO: Starting TMDB data processing...`);
+            await processScrapedData(tmdbReadyData); // Process the structured data with TMDB
+            console.log(`${LOG_PREFIX} INFO: TMDB processing complete.`);
         } else {
-            console.log("No data to process for TMDB.");
+            console.log(`${LOG_PREFIX} INFO: No data scraped from websites, so no TMDB processing will occur.`);
         }
 
-        console.log("Script finished successfully!");
+        console.log(`\n${LOG_PREFIX} INFO: Script finished successfully!`);
 
     } catch (error) {
-        console.error("An error occurred in the main process:", error.message);
+        // Catch any errors that propagate up from the main workflow steps
+        console.error(`${LOG_PREFIX} ERROR: A critical error occurred in the main process: ${error.message}`);
         if (error.stack) {
             console.error(error.stack);
         }
-        process.exitCode = 1;
+        process.exitCode = 1; // Signal an error exit status to the operating system
     } finally {
+        // Ensure the browser is closed whether the script succeeds or fails
         if (browser) {
             try {
-                console.log("Closing browser...");
+                console.log(`${LOG_PREFIX} INFO: Closing browser...`);
                 await browser.close();
-                console.log("Browser closed.");
+                console.log(`${LOG_PREFIX} INFO: Browser closed successfully.`);
             } catch (closeError) {
-                console.error("Error closing the browser:", closeError.message);
-                if (!process.exitCode) {
+                console.error(`${LOG_PREFIX} ERROR: Failed to close the browser: ${closeError.message}`, closeError.stack || '');
+                // If an error occurs during browser close, and no other error has set the exit code,
+                // set it now to indicate a problem.
+                if (!process.exitCode) { 
                     process.exitCode = 1;
                 }
             }
         }
     }
-}
+};
 
-// Execute the main function
-// This ensures the script runs when executed with `node main.js`
+// --- Script Execution ---
+// Execute the main function and handle its final promise resolution.
 main().then(() => {
+    // This block executes after main() has completed (either resolved or its catch/finally handled errors).
     if (typeof process.exitCode === 'undefined' || process.exitCode === 0) {
-        console.log("Script succeeded.");
+        console.log(`\n${LOG_PREFIX} FINAL: Script execution cycle completed successfully.`);
+        // process.exit(0); // Explicitly exit with success code; often not needed as Node.js will exit when event loop is empty.
     } else {
-        console.log(`Exiting script with error code: ${process.exitCode}.`);
+        console.log(`\n${LOG_PREFIX} FINAL: Script execution cycle completed with error code: ${process.exitCode}.`);
+        // process.exit(process.exitCode); // Explicitly exit with the set error code.
     }
-}).catch(unhandledErrorInMain => {
-    console.error("Unhandled error after main execution attempt:", unhandledErrorInMain);
-    process.exitCode = 1;
+}).catch(unhandledErrorFromMainCall => {
+    // This catch is an ultimate safeguard if the main() promise itself rejects in an unhandled way
+    // (e.g., if main() was not async and threw, or if .then()/.catch() logic itself had an issue).
+    // With the current structure of main(), errors should be caught internally or by the unhandledRejection handler.
+    console.error(`${LOG_PREFIX} CRITICAL: Unhandled error from main() function call chain:`, unhandledErrorFromMainCall);
+    process.exitCode = 1; // Ensure error exit
+    // process.exit(1);
 });

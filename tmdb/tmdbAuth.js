@@ -1,96 +1,142 @@
-import open from 'open';
+// tmdb/tmdbAuth.js
+import open from 'open'; // Used to open the TMDB authorization URL in the user's browser.
 
-// Authenticates user to create 15 minute access token for TMDB API actions
-// https://developer.themoviedb.org/v4/docs/authentication-user
+// Define a prefix for logs originating from this module for easier debugging.
+const LOG_PREFIX = "[TMDBAuth]";
+
+/**
+ * Handles the TMDB v4 user authentication flow to obtain a user-specific access token.
+ * This process involves:
+ * 1. Requesting a temporary `request_token` from TMDB using the app's read access token.
+ * 2. Opening a URL in the user's browser for them to approve the application's access.
+ * 3. Pausing script execution until the user confirms approval (by pressing ENTER).
+ * 4. Exchanging the approved `request_token` for a short-lived user `access_token` and `account_id`.
+ *
+ * Requires `TMDB_READ_ACCESS_TOKEN` to be set in the environment variables.
+ * See: https://developer.themoviedb.org/v4/docs/authentication-user
+ *
+ * @async
+ * @function authenticateForTMDB
+ * @returns {Promise<object>} A promise that resolves with an object containing the user's
+ * `access_token` and `account_id` upon successful authentication.
+ * Example: `{ success: true, access_token: "user_access_token_here", account_id: "user_account_id_here" }`
+ * @throws {Error} If authentication fails at any step (e.g., missing read access token,
+ * API errors, token exchange failure, user approval timeout).
+ */
 export const authenticateForTMDB = async () => {
+    // Base URL for TMDB API v4. Could be moved to config.js if not already there.
+    const TMDB_API_BASE_V4 = 'https://api.themoviedb.org/4';
+    const TMDB_APP_READ_ACCESS_TOKEN = process.env.TMDB_READ_ACCESS_TOKEN;
 
-    const TMDB_API_BASE = 'https://api.themoviedb.org/4';
-    const TMDB_READ_ACCESS_TOKEN = process.env.TMDB_READ_ACCESS_TOKEN;
-
-    if (!TMDB_READ_ACCESS_TOKEN) {
-        console.error('Missing TMDB_READ_ACCESS_TOKEN in .env file');
-        process.exit(1);
+    // Critical check: Ensure the application's read access token is available.
+    if (!TMDB_APP_READ_ACCESS_TOKEN) {
+        console.error(`${LOG_PREFIX} ERROR: Missing TMDB_READ_ACCESS_TOKEN in .env file. This token is required to initiate authentication.`);
+        process.exit(1); // Exit if the token is not configured, as authentication cannot proceed.
     }
 
+    // Standard headers for TMDB v4 API requests using the app's read access token.
     const headers = {
-        'Authorization': `Bearer ${TMDB_READ_ACCESS_TOKEN}`,
+        'Authorization': `Bearer ${TMDB_APP_READ_ACCESS_TOKEN}`,
         'Content-Type': 'application/json'
     };
 
     try {
-        // 1. Request a request_token
-        const reqTokenRes = await fetch(`${TMDB_API_BASE}/auth/request_token`, {
+        // --- Step 1: Request a temporary request_token ---
+        console.log(`${LOG_PREFIX} INFO: Requesting TMDB request_token...`);
+        const requestTokenResponse = await fetch(`${TMDB_API_BASE_V4}/auth/request_token`, {
             method: 'POST',
-            headers
+            headers: headers
+            // Body is not typically required for this specific endpoint if using Bearer token auth
         });
 
-        if (!reqTokenRes.ok) {
-            throw new Error(`Failed to request token: ${reqTokenRes.statusText}`);
+        if (!requestTokenResponse.ok) {
+            const errorBody = await requestTokenResponse.text().catch(() => "Could not read error body.");
+            throw new Error(`Failed to obtain request_token from TMDB. Status: ${requestTokenResponse.status} ${requestTokenResponse.statusText}. Response: ${errorBody.substring(0, 200)}`);
         }
 
-        const reqTokenData = await reqTokenRes.json();
-        const requestToken = reqTokenData.request_token;
+        const requestTokenData = await requestTokenResponse.json();
+        const requestToken = requestTokenData.request_token;
 
         if (!requestToken) {
-            throw new Error(`Failed to get request token. Response: ${JSON.stringify(reqTokenData)}`);
+            throw new Error(`TMDB API Error: Did not receive request_token in response. Data: ${JSON.stringify(requestTokenData)}`);
         }
+        console.log(`${LOG_PREFIX} INFO: Request token received: ${requestToken}`);
 
-        console.log(`Request token received: ${requestToken}`);
-
-        // 2. Open browser for user to approve
+        // --- Step 2: Direct user to TMDB to approve the request_token ---
         const approveUrl = `https://www.themoviedb.org/auth/access?request_token=${requestToken}`;
-        console.log(`Opening browser for you to approve access: ${approveUrl}`);
+        console.log(`${LOG_PREFIX} INFO: Opening browser for user approval: ${approveUrl}`);
         await open(approveUrl);
 
-        // 3. Wait for user confirmation before proceeding
-        await promptContinue();
+        // --- Step 3: Wait for user to manually confirm approval in the console ---
+        console.log(`${LOG_PREFIX} INFO: Please approve the request in your browser and then press ENTER in this console.`);
+        await promptContinue(); // Pauses script execution
 
-        // 4. Exchange request token for access token
-        const accessTokenRes = await fetch(`${TMDB_API_BASE}/auth/access_token`, {
+        // --- Step 4: Exchange the (now approved) request_token for a user access_token ---
+        console.log(`${LOG_PREFIX} INFO: Exchanging request_token for user access_token...`);
+        const accessTokenResponse = await fetch(`${TMDB_API_BASE_V4}/auth/access_token`, {
             method: 'POST',
-            headers,
+            headers: headers, // Same headers are used for this step
             body: JSON.stringify({ request_token: requestToken })
         });
 
-        if (!accessTokenRes.ok) {
-            const errorBody = await accessTokenRes.text();
-            throw new Error(`TMDB authentication failed to get access token. Status: ${accessTokenRes.status}. Response: ${errorBody}`);
+        if (!accessTokenResponse.ok) {
+            const errorBody = await accessTokenResponse.text().catch(() => "Could not read error body.");
+            throw new Error(`Failed to exchange request_token for access_token. Status: ${accessTokenResponse.status} ${accessTokenResponse.statusText}. Response: ${errorBody.substring(0,200)}`);
         }
 
-        const accessTokenData = await accessTokenRes.json();
+        const accessTokenData = await accessTokenResponse.json();
 
-        if (!accessTokenData.access_token) {
-            throw new Error(`TMDB authentication failed: No access token returned. Response: ${JSON.stringify(accessTokenData)}`);
+        if (!accessTokenData.access_token || !accessTokenData.account_id) {
+            throw new Error(`TMDB API Error: Did not receive access_token or account_id in response. Data: ${JSON.stringify(accessTokenData)}`);
         }
 
-        console.log('\n Access token granted!');
-        console.log('Your user access token:', accessTokenData.access_token);
-        console.log('Account ID:', accessTokenData.account_id);
+        console.log(`\n${LOG_PREFIX} INFO: Access token granted successfully!`);
+        console.log(`${LOG_PREFIX} INFO: User Access Token: ${accessTokenData.access_token}`); // Be mindful of logging sensitive tokens
+        console.log(`${LOG_PREFIX} INFO: Account ID: ${accessTokenData.account_id}`);
 
-        // Return token for future API actions
-        return accessTokenData;
+        // Return the full object containing access_token, account_id, and success status.
+        return accessTokenData; // This object includes { success: true, access_token: "...", account_id: "..." }
 
     } catch (error) {
-        console.error('Authentication failed:', error);
-        throw new Error(`Authentication failed: ${error.message}`);
+        // Catch any error from the try block (fetch errors, JSON parsing, explicit throws).
+        console.error(`${LOG_PREFIX} ERROR: TMDB Authentication process failed. Error: ${error.message}`, error.stack || '');
+        // Re-throw a new error with context, or the original error if it's already contextualized.
+        // The calling function (processScrapedData) will handle this.
+        throw new Error(`TMDB Authentication failed: ${error.message}`);
     }
-}
+};
 
-// Helper function to pause for user approval
-const promptContinue = (timeoutMs = 300000) => {
+/**
+ * Pauses script execution and waits for the user to press the ENTER key in the console.
+ * Includes a timeout to prevent indefinite waiting.
+ * This function is an internal helper for the TMDB authentication flow.
+ *
+ * @async
+ * @function promptContinue
+ * @param {number} [timeoutMs=300000] - The maximum time in milliseconds to wait for user input (defaults to 5 minutes).
+ * @returns {Promise<void>} A promise that resolves when the user presses ENTER, or rejects if the timeout is reached.
+ * @throws {Error} If the timeout is reached before the user presses ENTER.
+ */
+const promptContinue = (timeoutMs = 300000) => { // Default timeout: 5 minutes
     return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-            process.stdin.pause();
+        // Set a timeout to automatically reject the promise if the user doesn't respond.
+        const timeoutId = setTimeout(() => {
+            process.stdin.pause(); // Stop listening for input
+            console.warn(`${LOG_PREFIX} WARN: Timed out waiting for user to press ENTER after TMDB approval.`);
             reject(new Error('Timed out waiting for user to press ENTER.'));
         }, timeoutMs);
 
+        // Ensure stdin is in a resumable state.
         process.stdin.resume();
-        console.log('\nPress ENTER after approving the request token in your browser...');
+        process.stdin.setEncoding('utf8'); // Set encoding for input
 
-        process.stdin.once('data', () => {
-            clearTimeout(timeout);
-            process.stdin.pause();
-            resolve();
+        console.log(`\n${LOG_PREFIX} ACTION: Press ENTER in this console after approving the request token in your browser... (Timeout: ${timeoutMs / 60000} minutes)`);
+
+        // Listen for a single 'data' event (which includes the ENTER key press).
+        process.stdin.once('data', (data) => {
+            clearTimeout(timeoutId);    // Clear the timeout as user has responded.
+            process.stdin.pause();      // Stop listening for further input.
+            resolve();                  // Resolve the promise to continue execution.
         });
     });
 };
