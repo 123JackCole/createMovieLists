@@ -1,8 +1,8 @@
 # TMDB Movie List Creator & Website Scraper
 
-This script automates the creation and updating of movie lists on The Movie Database (TMDB). I mainly use these lists as import lists on [Radarr](https://radarr.video/). Using TMDB lists for importing media is not yet supported by [Sonarr](https://sonarr.tv/), so the script currently only is for movies, not shows. This could change if Sonarr adds support in the future.
+This script automates the creation and updating of movie lists on (The Movie Database (TMDB))[https://www.themoviedb.org/]. I mainly use these lists as import lists on [Radarr](https://radarr.video/). Using TMDB lists for importing media is not yet supported by [Sonarr](https://sonarr.tv/), so the script currently only is for movies, not shows. This could change if Sonarr adds support in the future.
 
-The script scrapes movie titles and release years from various film distributor websites, then uses the TMDB API to:
+The script scrapes movie titles and release years from various film distributor websites, then uses the [TMDB API](https://developer.themoviedb.org/docs/getting-started) to:
 
     Authenticate a TMDB user.
 
@@ -103,11 +103,13 @@ Create a file named .env in the root directory of the project. Add your TMDB cre
 
 #### .env file
 
-#### Your TMDB API v4 Read Access Token (for initiating user authentication)
+##### Your TMDB API v4 Read Access Token (for initiating user authentication)
 TMDB_READ_ACCESS_TOKEN=your_v4_read_access_token_here
 
-#### Your TMDB API Key (v3 - used for searching movies/collections)
+##### Your TMDB API Key (v3 - used for searching movies/collections)
 TMDB_API_KEY=your_v3_api_key_here
+
+These can be found [here.](https://www.themoviedb.org/settings/api)
 
 Important: Add .env to your .gitignore file to prevent accidentally committing your secret credentials to version control.
 ### 5. Configuration
