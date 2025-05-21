@@ -1,0 +1,1 @@
+Script to create TMDB (https://www.themoviedb.org/) lists of movies. My usecase is creating lists for the Criterion Collection (https://www.criterion.com/), The Master's of Cinema (https://eurekavideo.co.uk/masters-of-cinema), and Vinegar Syndrome (https://vinegarsyndrome.com) 

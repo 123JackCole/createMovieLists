@@ -1,0 +1,28 @@
+{
+  "name": "createmovielists",
+  "version": "1.0.0",
+  "description": "Script to create TMDB (https://www.themoviedb.org/) lists of movies. My usecase is creating lists for the Criterion Collection (https://www.criterion.com/), The Master's of Cinema (https://eurekavideo.co.uk/masters-of-cinema), and Vinegar Syndrome (https://vinegarsyndrome.com)",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/123JackCole/createMovieLists.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/123JackCole/createMovieLists/issues"
+  },
+  "homepage": "https://github.com/123JackCole/createMovieLists#readme",
+  "dependencies": {
+    "dotenv": "^16.5.0",
+    "open": "^10.1.2",
+    "puppeteer": "^24.8.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  }
+}
