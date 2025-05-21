@@ -1,6 +1,6 @@
 # TMDB Movie List Creator & Website Scraper
 
-This script automates the creation and updating of movie lists on (The Movie Database (TMDB))[https://www.themoviedb.org/]. I mainly use these lists as import lists on [Radarr](https://radarr.video/). Using TMDB lists for importing media is not yet supported by [Sonarr](https://sonarr.tv/), so the script currently only is for movies, not shows. This could change if Sonarr adds support in the future.
+This script automates the creation and updating of movie lists on (The Movie Database \(TMDB\))[https://www.themoviedb.org/]. I mainly use these lists as import lists on [Radarr](https://radarr.video/). Using TMDB lists for importing media is not yet supported by [Sonarr](https://sonarr.tv/), so the script currently only is for movies, not shows. This could change if Sonarr adds support in the future.
 
 The script scrapes movie titles and release years from various film distributor websites, then uses the [TMDB API](https://developer.themoviedb.org/docs/getting-started) to:
 
