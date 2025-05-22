@@ -328,7 +328,6 @@ const getMovieIdsFromTmdbCollection = async (apiKey, collectionId, collectionNam
  *
  * @async
  * @function getMovieIds
- * @param {object} accessToken - The TMDB user access token object (used by some internal calls if v4 endpoints were needed, though currently v3 search uses API key).
  * @param {Array<{title: string, year: string|null}>} moviesList - Array of movie objects to search for.
  * @returns {Promise<{successfulIds: Array<number>, notFoundTitles: Array<object>, failedToSearchTitles: Array<object>, attemptedCount: number}>}
  * An object containing:
@@ -337,101 +336,130 @@ const getMovieIdsFromTmdbCollection = async (apiKey, collectionId, collectionNam
  * - `failedToSearchTitles`: An array of original movie objects that encountered an error during the search process.
  * - `attemptedCount`: The total number of movies from `moviesList` that were attempted.
  */
-const getMovieIds = async (accessToken, moviesList) => {
+const getMovieIds = async (moviesList) => {
     const FN_NAME = "getMovieIds";
-    const successfulIds = new Set(); // Use a Set to automatically handle duplicate IDs
+    const successfulIds = new Set();
     const notFoundTitles = [];
     const failedToSearchTitles = [];
-    const apiKey = process.env.TMDB_API_KEY; // Ensure TMDB_API_KEY is loaded from .env
+    const apiKey = process.env.TMDB_API_KEY;
 
     if (!apiKey) {
-        console.error(`${LOG_PREFIX} ERROR: [${FN_NAME}] CRITICAL - TMDB_API_KEY for v3 search is missing!`);
+        console.error(`[TMDBApi][${FN_NAME}] CRITICAL: TMDB_API_KEY for v3 search is missing!`);
         moviesList.forEach(movie => {
             failedToSearchTitles.push({ title: movie.title, year: movie.year, reason: 'TMDB_API_KEY missing' });
         });
         return { successfulIds: [], notFoundTitles, failedToSearchTitles, attemptedCount: moviesList.length };
     }
 
-    console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Starting TMDB ID lookup for ${moviesList.length} movies.`);
+    console.log(`[TMDBApi][${FN_NAME}] Starting TMDB ID lookup for ${moviesList.length} movies.`);
 
     for (const movie of moviesList) {
         const { title: rawTitle, year: rawScrapedYear } = movie;
-        let movieFoundThisIteration = false; // Flag for the current movie object
+        let movieFoundThisIteration = false;
 
         try {
             if (!rawTitle) {
-                console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] Skipping movie with no raw title data:`, movie);
+                console.warn(`[TMDBApi][${FN_NAME}] Skipping movie with no raw title data:`, movie);
                 failedToSearchTitles.push({ title: 'N/A (Title Missing)', year: rawScrapedYear || 'N/A', reason: 'Missing title data from scraper' });
                 continue;
             }
 
-            const { sanitizedTitle, searchYear: initialSearchYear, isLikelyCollection } = normalizeTitleForSearch(rawTitle, rawScrapedYear);
+            const { sanitizedTitle: initialSanitizedTitle, searchYear: initialSearchYear, isLikelyCollection } = normalizeTitleForSearch(rawTitle, rawScrapedYear);
 
-            if (!sanitizedTitle) {
-                console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] Skipping movie because title became empty after sanitization (Original: "${rawTitle}"):`, movie);
-                failedToSearchTitles.push({ title: rawTitle, year: rawScrapedYear || 'N/A', reason: 'Title became empty after sanitization' });
+            if (!initialSanitizedTitle) {
+                console.warn(`[TMDBApi][${FN_NAME}] Skipping movie because title became empty after initial sanitization (Original: "${rawTitle}"):`, movie);
+                failedToSearchTitles.push({ title: rawTitle, year: rawScrapedYear || 'N/A', reason: 'Title became empty after initial sanitization' });
                 continue;
             }
             
-            // Prepare years to try for movie search (initial, year+1, year-1, null)
+            console.log(`[TMDBApi][${FN_NAME}] Processing: "${rawTitle}" (Scraped Year: ${rawScrapedYear || 'N/A'}) -> Initial Sanitized: "${initialSanitizedTitle}" (Likely Collection: ${isLikelyCollection})`);
+
+            // --- Attempt 1: Movie Search with initial sanitized title and year variations ---
             const searchYearsToTry = [initialSearchYear];
             if (initialSearchYear && /^\d{4}$/.test(initialSearchYear)) {
                 searchYearsToTry.push(String(parseInt(initialSearchYear, 10) + 1));
                 searchYearsToTry.push(String(parseInt(initialSearchYear, 10) - 1));
             }
             const uniqueSearchYears = [...new Set(searchYearsToTry.filter(yr => yr !== null && yr !== undefined))];
-            if (uniqueSearchYears.length === 0 || !uniqueSearchYears.some(yr => yr === initialSearchYear)) {
-                 // Ensure a search without a year is also attempted if no specific years, or if initialSearchYear was null
+            if (uniqueSearchYears.length === 0 || !uniqueSearchYears.includes(initialSearchYear)) {
                 if(!uniqueSearchYears.includes(null)) uniqueSearchYears.push(null);
             }
 
-
-            // console.log(`${LOG_PREFIX} DEBUG: [${FN_NAME}] Processing: "${rawTitle}" (Scraped Year: ${rawScrapedYear || 'N/A'}) -> Sanitized: "${sanitizedTitle}" (Likely Collection: ${isLikelyCollection}), Search Years: ${uniqueSearchYears.join(', ')}`);
-
-            // --- Movie Search Attempt (with year variations) ---
             for (const currentSearchYear of uniqueSearchYears) {
-                if (movieFoundThisIteration) break; // Found in a previous year attempt
-
-                const encodedTitle = encodeURIComponent(sanitizedTitle);
+                if (movieFoundThisIteration) break;
+                console.log(`  [TMDBApi][${FN_NAME}] Attempting movie search for: "${initialSanitizedTitle}" with year: ${currentSearchYear || 'Any'}`);
+                const encodedTitle = encodeURIComponent(initialSanitizedTitle);
                 let movieSearchUrl = `${TMDB_API_CONFIG.BASE_URL_V3}/search/movie?api_key=${apiKey}&query=${encodedTitle}&include_adult=false&language=en-US&page=1`;
-                if (currentSearchYear) {
-                    movieSearchUrl += `&year=${currentSearchYear}&primary_release_year=${currentSearchYear}`;
-                }
+                if (currentSearchYear) movieSearchUrl += `&year=${currentSearchYear}&primary_release_year=${currentSearchYear}`;
                 
                 try {
-                    const movieData = await fetchWithRetry(
-                        movieSearchUrl,
-                        { method: 'GET', headers: { accept: 'application/json' } },
-                        { movieTitle: sanitizedTitle, actionDescription: `search for movie "${sanitizedTitle}" (Year: ${currentSearchYear || 'Any'})` }
-                    );
-
+                    const movieData = await fetchWithRetry( movieSearchUrl, { method: 'GET', headers: { accept: 'application/json' } }, { movieTitle: initialSanitizedTitle, actionDescription: `search for movie "${initialSanitizedTitle}" (Year: ${currentSearchYear || 'Any'})` });
                     if (movieData.results?.length > 0) {
-                        let foundM = movieData.results[0]; // Default to first result
-                        if (currentSearchYear) { // If we searched with a specific year, try to find a better match
+                        let foundM = movieData.results[0];
+                        if (currentSearchYear) {
                             const yearMatch = movieData.results.find(r => r.release_date?.startsWith(currentSearchYear));
                             if (yearMatch) foundM = yearMatch;
                         }
-                        // console.log(`${LOG_PREFIX} INFO: [${FN_NAME}]   SUCCESS: Found TMDB Movie ID ${foundM.id} ("${foundM.title}") for query "${sanitizedTitle}" (Year: ${currentSearchYear || 'Any'})`);
+                        console.log(`    [TMDBApi][${FN_NAME}] SUCCESS: Found TMDB Movie ID ${foundM.id} ("${foundM.title}")`);
                         successfulIds.add(foundM.id);
                         movieFoundThisIteration = true;
                     }
-                } catch (movieSearchError) {
-                    // fetchWithRetry already logs the attempt failure.
-                    // console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}]   Movie search failed for "${sanitizedTitle}" with year ${currentSearchYear || 'Any'}: ${movieSearchError.message}`);
-                }
-            } // End of year retry loop
+                } catch (movieSearchError) { /* Logged by fetchWithRetry */ }
+            }
 
-            // --- Collection Search Attempt (if movie not found via any year attempt AND it's likely a collection) ---
-            if (!movieFoundThisIteration && isLikelyCollection) {
-                // console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Movie search yielded no results for "${sanitizedTitle}". Attempting collection search.`);
-                // For collection search, the raw title (or a minimally cleaned version) might be better.
-                const collectionQuery = normalizeTitleForSearch(rawTitle, null).sanitizedTitle || rawTitle; // Use a version more likely to match collection names
+            // --- Attempt 2: If not found and original title contained '&', split and search parts ---
+            if (!movieFoundThisIteration && rawTitle.includes(' & ')) {
+                console.log(`  [TMDBApi][${FN_NAME}] Movie not found for "${initialSanitizedTitle}". Original title contained '&', attempting to split and search parts.`);
+                const parts = rawTitle.split(' & ').map(p => p.trim()).filter(p => p.length > 0);
                 
+                for (const partTitle of parts) {
+                    // We want to find *any* part, so if one part is found, we don't necessarily stop for this "multi-part" entry.
+                    // However, if a part is found, it contributes to the overall success for `rawTitle`.
+                    const { sanitizedTitle: partSanitized, searchYear: partSearchYear } = normalizeTitleForSearch(partTitle, rawScrapedYear); // Re-sanitize each part
+                    if (!partSanitized) continue;
+
+                    const partSearchYearsToTry = [partSearchYear];
+                     if (partSearchYear && /^\d{4}$/.test(partSearchYear)) {
+                        partSearchYearsToTry.push(String(parseInt(partSearchYear, 10) + 1));
+                        partSearchYearsToTry.push(String(parseInt(partSearchYear, 10) - 1));
+                    }
+                    const uniquePartSearchYears = [...new Set(partSearchYearsToTry.filter(yr => yr !== null && yr !== undefined))];
+                    if (uniquePartSearchYears.length === 0) uniquePartSearchYears.push(null);
+
+
+                    for (const currentPartSearchYear of uniquePartSearchYears) {
+                        console.log(`    [TMDBApi][${FN_NAME}] Attempting movie search for part: "${partSanitized}" with year: ${currentPartSearchYear || 'Any'}`);
+                        const encodedPartTitle = encodeURIComponent(partSanitized);
+                        let partSearchUrl = `${TMDB_API_CONFIG.BASE_URL_V3}/search/movie?api_key=${apiKey}&query=${encodedPartTitle}&include_adult=false&language=en-US&page=1`;
+                        if (currentPartSearchYear) partSearchUrl += `&year=${currentPartSearchYear}&primary_release_year=${currentPartSearchYear}`;
+
+                        try {
+                            const movieData = await fetchWithRetry( partSearchUrl, { method: 'GET', headers: { accept: 'application/json' } }, { movieTitle: partSanitized, actionDescription: `search for movie part "${partSanitized}" (Year: ${currentPartSearchYear || 'Any'})` });
+                            if (movieData.results?.length > 0) {
+                                let foundM = movieData.results[0];
+                                if (currentPartSearchYear) {
+                                    const yearMatch = movieData.results.find(r => r.release_date?.startsWith(currentPartSearchYear));
+                                    if (yearMatch) foundM = yearMatch;
+                                }
+                                console.log(`      [TMDBApi][${FN_NAME}] SUCCESS (part): Found TMDB Movie ID ${foundM.id} ("${foundM.title}") for part "${partSanitized}"`);
+                                successfulIds.add(foundM.id);
+                                movieFoundThisIteration = true;
+                            }
+                        } catch (partSearchError) { /* Logged by fetchWithRetry */ }
+                        if (movieFoundThisIteration && uniquePartSearchYears.length > 1) break; // If found for this part, no need to try other years for *this part*
+                    }
+                }
+            }
+
+            // --- Attempt 3: Collection Search (if still not found AND it's likely a collection) ---
+            if (!movieFoundThisIteration && isLikelyCollection) {
+                console.log(`  [TMDBApi][${FN_NAME}] Movie/parts search yielded no results for "${initialSanitizedTitle}". Attempting collection search.`);
+                const collectionQuery = normalizeTitleForSearch(rawTitle, null).sanitizedTitle || rawTitle; // Use a title more suitable for collection name
                 const collectionId = await searchForTmdbCollectionByName(apiKey, collectionQuery, rawTitle);
                 if (collectionId) {
                     const collectionMovieIds = await getMovieIdsFromTmdbCollection(apiKey, collectionId, collectionQuery);
                     if (collectionMovieIds.length > 0) {
-                        // console.log(`${LOG_PREFIX} INFO: [${FN_NAME}]   Added ${collectionMovieIds.length} movies from collection "${collectionQuery}" for original title "${rawTitle}".`);
+                        console.log(`    [TMDBApi][${FN_NAME}] Added ${collectionMovieIds.length} movies from collection "${collectionQuery}" for original title "${rawTitle}".`);
                         collectionMovieIds.forEach(id => successfulIds.add(id));
                         movieFoundThisIteration = true; 
                     }
@@ -439,17 +467,17 @@ const getMovieIds = async (accessToken, moviesList) => {
             }
 
             if (!movieFoundThisIteration) {
-                // console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] FINAL: No TMDB movies or collection parts found for: "${sanitizedTitle}" (Original: "${rawTitle}", Original year: ${rawScrapedYear || 'N/A'})`);
+                console.warn(`  [TMDBApi][${FN_NAME}] FINAL: No TMDB movies or collection parts found for: "${initialSanitizedTitle}" (Original: "${rawTitle}", Original year: ${rawScrapedYear || 'N/A'})`);
                 notFoundTitles.push({ title: rawTitle, year: rawScrapedYear });
             }
 
-        } catch (error) { // Catch errors from the outer try block for this movie's processing
-            console.error(`${LOG_PREFIX} ERROR: [${FN_NAME}] Unexpected error processing movie "${rawTitle}" (${rawScrapedYear || 'N/A'}): ${error.message}`, error.stack || '');
+        } catch (error) {
+            console.error(`[TMDBApi][${FN_NAME}] Unexpected error processing movie "${rawTitle}" (${rawScrapedYear || 'N/A'}): ${error.message}`, error.stack || '');
             failedToSearchTitles.push({ title: rawTitle, year: rawScrapedYear, reason: 'Unexpected error in getMovieIds main loop', details: error.message });
         }
-    } // end for loop over moviesList
+    }
 
-    console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Finished TMDB ID lookup. Found: ${successfulIds.size}, Not Found: ${notFoundTitles.length}, Failed Search: ${failedToSearchTitles.length}`);
+    console.log(`[TMDBApi][${FN_NAME}] Finished TMDB ID lookup. Found: ${successfulIds.size} unique IDs, Not Found (original titles): ${notFoundTitles.length}, Failed Search (original titles): ${failedToSearchTitles.length}`);
     return { 
         successfulIds: Array.from(successfulIds), 
         notFoundTitles, 
