@@ -3,7 +3,7 @@ import { normalizeTitleForSearch } from '../utils/titleSanitizer.js';
 
 const LOG_PREFIX = "[TMDBApi]";
 
-// --- Internal Helper Functions ---
+// --- Helper Functions ---
 
 /**
  * Handles the response from a TMDB API call made via fetch.
