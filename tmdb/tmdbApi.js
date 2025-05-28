@@ -23,19 +23,22 @@ const LOG_PREFIX = "[TMDBApi]";
  * The error object will have a `status` property if it's an HTTP error.
  */
 const handleTmdbResponse = async (response, contextTitle, actionDescription) => {
+    const FN_NAME = "handleTmdbResponse";
     let responseData;
+
     if (!response.ok) {
         let errorBodyText = `TMDB API Error ${response.status} ${response.statusText}`;
         try {
             const tempErrorBody = await response.text();
-            errorBodyText = tempErrorBody.substring(0, 500) || errorBodyText; // Limit length for logging
+            // Use the error body if available and not empty, otherwise stick with status text. Limit length for logs.
+            errorBodyText = tempErrorBody && tempErrorBody.trim().length > 0 ? tempErrorBody.substring(0, 500) : errorBodyText;
         } catch (e) {
             // This catch is for if .text() itself fails after a !response.ok
-            console.warn(`${LOG_PREFIX} WARN: [handleTmdbResponse] Could not read error body for ${actionDescription} on "${contextTitle}". Status: ${response.status}`);
+            console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] Could not read error body for ${actionDescription} on "${contextTitle}". Status: ${response.status}. Error: ${e.message}`);
         }
         const error = new Error(`TMDB API Error (${response.status}) for ${actionDescription} on "${contextTitle}": ${errorBodyText}`);
         error.status = response.status; // Attach status for potential retry logic or specific handling
-        console.error(`${LOG_PREFIX} ERROR: [handleTmdbResponse] Failed to ${actionDescription} for "${contextTitle}". Status: ${response.status}. Body: ${errorBodyText}`);
+        console.error(`${LOG_PREFIX} ERROR: [${FN_NAME}] Failed to ${actionDescription} for "${contextTitle}". Status: ${response.status}. Body Snippet: ${errorBodyText}`);
         throw error;
     }
 
@@ -45,13 +48,12 @@ const handleTmdbResponse = async (response, contextTitle, actionDescription) => 
         let responseText = "Could not read response text after JSON parse failure.";
         try {
             // Attempt to read the text of the response if JSON parsing failed.
-            // Note: This might not always work if the response stream was already consumed by a failed .json() attempt,
-            // depending on the fetch implementation and server behavior.
+            // This might not always work if the response stream was already consumed by a failed .json() attempt.
             responseText = await response.text();
         } catch (textReadError) {
-            console.warn(`${LOG_PREFIX} WARN: [handleTmdbResponse] Failed to read response text after JSON parsing failed for ${actionDescription} on "${contextTitle}".`);
+            console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] Failed to read response text after JSON parsing failed for ${actionDescription} on "${contextTitle}". Error: ${textReadError.message}`);
         }
-        console.error(`${LOG_PREFIX} ERROR: [handleTmdbResponse] API call for ${actionDescription} on "${contextTitle}" was 'ok' (Status: ${response.status}) but failed to parse JSON. Response Text (first 500 chars):`, responseText.substring(0, 500));
+        console.error(`${LOG_PREFIX} ERROR: [${FN_NAME}] API call for ${actionDescription} on "${contextTitle}" was 'ok' (Status: ${response.status}) but failed to parse JSON. Response Text (first 500 chars):`, responseText.substring(0, 500));
         throw new Error(`TMDB API 'ok' (Status: ${response.status}) for ${actionDescription} on "${contextTitle}" but response was not valid JSON.`);
     }
     return responseData;
@@ -67,71 +69,68 @@ const handleTmdbResponse = async (response, contextTitle, actionDescription) => 
  * @param {string} url - The URL to fetch.
  * @param {object} options - The options object for the fetch call.
  * @param {object} context - An object containing contextual information for logging.
- * @param {string} [context.listTitle] - The title of the list being processed (if applicable).
- * @param {string} [context.collectionName] - The name of the collection being processed (if applicable).
- * @param {string} [context.movieTitle] - The title of the movie being processed (if applicable).
+ * @param {string} [context.listTitle] - The title of the list being processed.
+ * @param {string} [context.collectionName] - The name of the collection being processed.
+ * @param {string} [context.movieTitle] - The title of the movie being processed.
  * @param {string} context.actionDescription - A description of the action being performed.
  * @param {number} [maxRetries=3] - The maximum number of retry attempts.
  * @param {number} [initialDelay=2000] - The initial delay in milliseconds before the first retry.
- * @returns {Promise<object>} A promise that resolves with the parsed JSON data from the API response
- * if successful after retries.
+ * @returns {Promise<object>} A promise that resolves with the parsed JSON data from the API response if successful.
  * @throws {Error} If all retry attempts fail or if a non-retryable error occurs.
  */
 const fetchWithRetry = async (url, options, context, maxRetries = 3, initialDelay = 2000) => {
+    const FN_NAME = "fetchWithRetry";
     let attempt = 0;
     let currentDelay = initialDelay;
-    // Determine a clear identifier for logging based on the provided context.
     const contextIdentifier = context.movieTitle || context.collectionName || context.listTitle || "item";
 
     while (attempt < maxRetries) {
         attempt++;
         try {
-            if (attempt > 1) { // Only log subsequent attempts
-                console.log(`${LOG_PREFIX} INFO: [fetchWithRetry] Attempt ${attempt}/${maxRetries} to ${context.actionDescription} for "${contextIdentifier}"`);
+            if (attempt > 1) { // Log only for actual retry attempts
+                 console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Attempt ${attempt}/${maxRetries} to ${context.actionDescription} for "${contextIdentifier}"`);
             }
             const response = await fetch(url, options);
 
             // Check for specific HTTP status codes that warrant a retry.
             if ([502, 503, 504].includes(response.status)) {
                 let errorBody = "Could not read error body on retryable error.";
-                try { errorBody = await response.text(); } catch(e) { /* ignore if reading body fails */ }
+                try { errorBody = await response.text(); } catch(e) { /* ignore */ }
                 const error = new Error(`Retryable server error: ${response.status} ${response.statusText} while trying to ${context.actionDescription} for "${contextIdentifier}". Body: ${errorBody.substring(0,200)}`);
                 error.status = response.status;
-                throw error; // This will be caught by the catch block below for retry.
+                // Log here before throwing to be caught by the retry logic below
+                console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] ${error.message}`);
+                throw error; 
             }
             
             // If not a specific retryable status, pass to handleTmdbResponse.
-            // handleTmdbResponse will throw for other !response.ok errors (e.g., 401, 404)
-            // or if JSON parsing fails on a 2xx response.
             return await handleTmdbResponse(response, contextIdentifier, context.actionDescription);
 
         } catch (error) {
-            console.warn(`${LOG_PREFIX} WARN: [fetchWithRetry] Attempt ${attempt} for "${context.actionDescription}" on "${contextIdentifier}" failed: ${error.message}`);
+            // This catch block handles errors from fetch() itself, or errors thrown by the 5xx check above,
+            // or errors thrown by handleTmdbResponse (like 4xx or JSON parsing errors).
+            console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] Attempt ${attempt} for "${context.actionDescription}" on "${contextIdentifier}" failed: ${error.message}`);
             
-            // Determine if the error is retryable.
             const isRetryableHttpError = error.status && [502, 503, 504].includes(error.status);
-            // Generic network errors might not have a .status property.
             const isNetworkError = !error.status && (
-                error.name === 'FetchError' || // node-fetch specific
+                error.name === 'FetchError' || 
                 error.message.toLowerCase().includes('network') ||
                 error.message.toLowerCase().includes('failed to fetch')
             );
 
             if ((isRetryableHttpError || isNetworkError) && attempt < maxRetries) {
-                console.log(`${LOG_PREFIX} INFO: [fetchWithRetry] Retrying in ${currentDelay / 1000}s...`);
+                console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Retrying in ${currentDelay / 1000}s...`);
                 await new Promise(resolve => setTimeout(resolve, currentDelay));
-                currentDelay *= 2; // Exponential backoff for subsequent retries.
+                currentDelay *= 2; // Exponential backoff
             } else {
                 // If not retryable or max retries reached, re-throw the error.
-                console.error(`${LOG_PREFIX} ERROR: [fetchWithRetry] All ${maxRetries} retry attempts failed for "${context.actionDescription}" on "${contextIdentifier}" or error not retryable (Status: ${error.status || 'N/A'}).`);
+                // The final console.error will be in the function that called fetchWithRetry.
                 throw error; 
             }
         }
     }
-    // This line should ideally not be reached if maxRetries > 0,
-    // as the loop will either return a result or throw an error.
-    // Added as a fallback.
-    throw new Error(`All retry attempts exhausted for "${context.actionDescription}" on "${contextIdentifier}".`);
+    // This line should ideally not be reached if maxRetries > 0.
+    throw new Error(`[${FN_NAME}] All retry attempts exhausted for "${context.actionDescription}" on "${contextIdentifier}".`);
 };
 
 // --- TMDB API Functions ---
@@ -142,21 +141,20 @@ const fetchWithRetry = async (url, options, context, maxRetries = 3, initialDela
  *
  * @async
  * @function createList
- * @param {object} accessToken - The TMDB user access token object (containing `access_token` and `account_id`).
+ * @param {object} accessToken - The TMDB user access token object (containing `access_token`).
  * @param {string} listTitle - The title for the new TMDB list.
  * @param {string} listDescription - The description for the new TMDB list.
- * @returns {Promise<number|null>} A promise that resolves with the ID of the newly created list,
- * or null if creation failed (though it typically throws on failure).
+ * @returns {Promise<number>} A promise that resolves with the ID of the newly created list.
  * @throws {Error} If the list already exists, or if any API error occurs during creation.
  */
-const createList = async (accessToken, listTitle, listDescription) => {
-    const FN_NAME = "createList"; // For consistent logging
+const createList = async (accessToken, listTitle, listDescription) => { 
+    const FN_NAME = "createList";
     try {
-        console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Checking if list "${listTitle}" already exists...`);
-        const existingListId = await getListId(accessToken, listTitle);
+        // console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Checking if list "${listTitle}" already exists...`);
+        const existingListId = await getListId(accessToken, listTitle); // Uses fetchWithRetry
         if (existingListId) {
             const errorMessage = `Failed to create list: The list named "${listTitle}" already exists with ID ${existingListId}.`;
-            console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] ${errorMessage}`); // Use warn as it's a pre-condition failure
+            console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] ${errorMessage}`);
             throw new Error(errorMessage);
         }
 
@@ -164,31 +162,18 @@ const createList = async (accessToken, listTitle, listDescription) => {
         const url = `${TMDB_API_CONFIG.BASE_URL_V4}/list`;
         const options = {
             method: 'POST',
-            headers: {
-                accept: 'application/json',
-                'content-type': 'application/json',
-                Authorization: `Bearer ${accessToken.access_token}`
-            },
-            body: JSON.stringify({
-                name: listTitle, // No need for `${listTitle}` if listTitle is already a string
-                iso_639_1: "en",
-                description: listDescription,
-                public: true // Assuming lists should be public by default
-            })
+            headers: { accept: 'application/json', 'content-type': 'application/json', Authorization: `Bearer ${accessToken.access_token}`},
+            body: JSON.stringify({ name: listTitle, iso_639_1: "en", description: listDescription, public: true })
         };
-
-        // fetchWithRetry will call handleTmdbResponse internally.
         const responseData = await fetchWithRetry(url, options, { listTitle, actionDescription: "create list" });
         
         console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] List "${listTitle}" created successfully. ID: ${responseData.id}`);
         return responseData.id;
-
     } catch (error) {
-        // Re-throw errors that are already well-contextualized by previous checks or handleTmdbResponse.
         if (error.message.startsWith('TMDB API Error') || error.message.startsWith('Failed to create list:')) {
+            // These errors are already contextualized, re-throw them.
             throw error;
         }
-        // For other unexpected errors specifically within this function's logic.
         console.error(`${LOG_PREFIX} ERROR: [${FN_NAME}] Unexpected error for list "${listTitle}": ${error.message}`, error.stack || '');
         throw new Error(`Failed to create list "${listTitle}" (unexpected): ${error.message}`);
     }
@@ -199,26 +184,19 @@ const createList = async (accessToken, listTitle, listDescription) => {
  *
  * @async
  * @function getListId
- * @param {object} accessToken - The TMDB user access token object.
+ * @param {object} accessToken - The TMDB user access token object (containing `access_token` and `account_id`).
  * @param {string} listTitle - The title of the list to find.
  * @returns {Promise<number|null>} A promise that resolves with the list ID if found, or null otherwise.
  * @throws {Error} If an API error occurs during fetching or if the response format is unexpected.
  */
-const getListId = async (accessToken, listTitle) => {
+const getListId = async (accessToken, listTitle) => { 
     const FN_NAME = "getListId";
     try {
-        // console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Fetching lists for account ID ${accessToken.account_id} to find "${listTitle}"...`);
-        const url = `${TMDB_API_CONFIG.BASE_URL_V4}/account/${accessToken.account_id}/lists?page=1`; // TMDB pagination starts at 1
-        const options = {
-            method: 'GET',
-            headers: {
-                accept: 'application/json',
-                // 'content-type': 'application/json', // Not typically needed for GET requests
-                Authorization: `Bearer ${accessToken.access_token}`
-            }
-        };
-
-        const data = await fetchWithRetry(url, options, { listTitle, actionDescription: "fetch user lists" });
+        const url = `${TMDB_API_CONFIG.BASE_URL_V4}/account/${accessToken.account_id}/lists?page=1`;
+        const options = { method: 'GET', headers: { accept: 'application/json', Authorization: `Bearer ${accessToken.access_token}`}};
+        
+        // fetchWithRetry calls handleTmdbResponse, which will throw if response is not OK or not JSON.
+        const data = await fetchWithRetry(url, options, { listTitle, actionDescription: `fetch user lists to find "${listTitle}"` });
 
         if (!data.results || !Array.isArray(data.results)) {
             console.error(`${LOG_PREFIX} ERROR: [${FN_NAME}] Unexpected TMDB response format when fetching lists for "${listTitle}". Data:`, data);
@@ -226,16 +204,13 @@ const getListId = async (accessToken, listTitle) => {
         }
 
         const foundList = data.results.find(list => list.name === listTitle);
-        if (foundList) {
-            // console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Found list "${listTitle}" with ID: ${foundList.id}.`);
-        } else {
-            // console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] List "${listTitle}" not found for this account.`);
-        }
+        // Logging for found/not found can be verbose if called many times, keep it minimal or conditional.
+        // if (foundList) console.log(`${LOG_PREFIX} DEBUG: [${FN_NAME}] Found list "${listTitle}" with ID: ${foundList.id}.`);
+        // else console.log(`${LOG_PREFIX} DEBUG: [${FN_NAME}] List "${listTitle}" not found.`);
         return foundList ? foundList.id : null;
-
     } catch (error) {
         if (error.message.startsWith('TMDB API Error') || error.message.startsWith('Unexpected TMDB response format')) {
-            throw error; // Re-throw already contextualized errors
+            throw error;
         }
         console.error(`${LOG_PREFIX} ERROR: [${FN_NAME}] Error searching for list ID for "${listTitle}": ${error.message}`, error.stack || '');
         throw new Error(`Failed to get list ID for "${listTitle}": ${error.message}`);
@@ -243,19 +218,19 @@ const getListId = async (accessToken, listTitle) => {
 };
 
 /**
- * Searches for a TMDB collection by its name.
+ * Searches for a TMDB collection by its name using the v3 API.
  *
  * @async
  * @private
  * @function searchForTmdbCollectionByName
  * @param {string} apiKey - The TMDB API key (v3).
  * @param {string} collectionQueryName - The name or query string for the collection search.
- * @param {string} rawTitleForLog - The original raw title, used for logging context.
+ * @param {string} rawTitleForLog - The original raw title of the item being processed, for logging context.
  * @returns {Promise<number|null>} The ID of the first matching collection, or null if not found or an error occurs.
  */
-const searchForTmdbCollectionByName = async (apiKey, collectionQueryName, rawTitleForLog) => {
+const searchForTmdbCollectionByName = async (apiKey, collectionQueryName, rawTitleForLog) => { 
     const FN_NAME = "searchForTmdbCollectionByName";
-    console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Attempting TMDB Collection search for: "${collectionQueryName}" (Original: "${rawTitleForLog}")`);
+    // console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Attempting TMDB Collection search for: "${collectionQueryName}" (Original: "${rawTitleForLog}")`);
     const encodedCollectionName = encodeURIComponent(collectionQueryName);
     const collectionSearchUrl = `${TMDB_API_CONFIG.BASE_URL_V3}/search/collection?api_key=${apiKey}&query=${encodedCollectionName}&page=1`;
     const options = { method: 'GET', headers: { accept: 'application/json' } };
@@ -264,24 +239,24 @@ const searchForTmdbCollectionByName = async (apiKey, collectionQueryName, rawTit
         const data = await fetchWithRetry(
             collectionSearchUrl,
             options,
-            { collectionName: collectionQueryName, actionDescription: "search for collection" }
+            { collectionName: collectionQueryName, actionDescription: `search for collection "${collectionQueryName}"` }
         );
         if (data.results && data.results.length > 0) {
-            const foundCollection = data.results[0]; // Taking the first result
-            console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Found collection: "${foundCollection.name}" (ID: ${foundCollection.id}) for query "${collectionQueryName}"`);
+            const foundCollection = data.results[0]; // Taking the first result, TMDB usually orders by relevance.
+            console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Found collection: "${foundCollection.name}" (ID: ${foundCollection.id}) for query "${collectionQueryName}" (Original: "${rawTitleForLog}")`);
             return foundCollection.id;
         }
-        console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] No collections found for query: "${collectionQueryName}"`);
+        // console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] No collections found for query: "${collectionQueryName}" (Original: "${rawTitleForLog}")`);
         return null;
     } catch (error) {
-        // fetchWithRetry already logs warnings for attempts. This logs the final failure.
-        console.error(`${LOG_PREFIX} ERROR: [${FN_NAME}] Collection search failed for "${collectionQueryName}" (Original: "${rawTitleForLog}"): ${error.message}`);
-        return null; // Return null on error so getMovieIds can continue with its flow
+        // fetchWithRetry already logs attempts. This logs the final failure of the search.
+        console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] Collection search failed for "${collectionQueryName}" (Original: "${rawTitleForLog}"): ${error.message}`);
+        return null; // Return null on error so getMovieIds can continue its flow.
     }
 }
 
 /**
- * Fetches all movie IDs from a given TMDB collection ID.
+ * Fetches all movie IDs from a given TMDB collection ID using the v3 API.
  *
  * @async
  * @private
@@ -293,7 +268,7 @@ const searchForTmdbCollectionByName = async (apiKey, collectionQueryName, rawTit
  */
 const getMovieIdsFromTmdbCollection = async (apiKey, collectionId, collectionNameForLog) => {
     const FN_NAME = "getMovieIdsFromTmdbCollection";
-    console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Fetching movies from TMDB Collection ID: ${collectionId} ("${collectionNameForLog}")`);
+    // console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Fetching movies from TMDB Collection ID: ${collectionId} ("${collectionNameForLog}")`);
     const collectionDetailsUrl = `${TMDB_API_CONFIG.BASE_URL_V3}/collection/${collectionId}?api_key=${apiKey}`;
     const options = { method: 'GET', headers: { accept: 'application/json' } };
     const movieIds = [];
@@ -306,222 +281,283 @@ const getMovieIdsFromTmdbCollection = async (apiKey, collectionId, collectionNam
         );
         if (data.parts && data.parts.length > 0) {
             data.parts.forEach(part => {
-                // Ensure it's a movie and has an ID before adding.
-                if (part.media_type === 'movie' && part.id) {
+                if (part.media_type === 'movie' && part.id) { // Ensure it's a movie and has an ID
                     movieIds.push(part.id);
                 }
             });
-            console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Found ${movieIds.length} movie IDs in collection "${data.name || collectionNameForLog}".`);
+            console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Found ${movieIds.length} movie IDs in collection "${data.name || collectionNameForLog}" (ID: ${collectionId}).`);
         } else {
-            console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] No movie parts found in collection ID ${collectionId} ("${data.name || collectionNameForLog}").`);
+            // console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] No movie parts found in collection ID ${collectionId} ("${data.name || collectionNameForLog}").`);
         }
         return movieIds;
     } catch (error) {
-        console.error(`${LOG_PREFIX} ERROR: [${FN_NAME}] Error fetching movies from collection ID ${collectionId} ("${collectionNameForLog}"): ${error.message}`);
-        return []; // Return empty array on error to allow main flow to continue
+        console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] Error fetching movies from collection ID ${collectionId} ("${collectionNameForLog}"): ${error.message}`);
+        return []; // Return empty array on error.
     }
 }
 
 /**
- * Takes an array of movie objects (title, year), searches TMDB for each,
- * attempts year-based retries and collection lookups, and returns the results.
+ * Takes an array of movie objects (each with a title and optional year),
+ * attempts to find corresponding TMDB IDs for each.
+ * This process involves:
+ * 1. Sanitizing the title and determining a primary search year.
+ * 2. Performing a direct movie search on TMDB, trying the primary search year,
+ * year + 1, year - 1, and a search without a year.
+ * 3. If the initial search fails and the raw title contains " & ", splitting the title
+ * into parts and searching for each part individually (also with year variations).
+ * 4. If previous searches fail and the title is flagged as 'isLikelyCollection' by the sanitizer,
+ * it attempts a TMDB collection search and then fetches movie IDs from that collection.
  *
  * @async
  * @function getMovieIds
- * @param {Array<{title: string, year: string|null}>} moviesList - Array of movie objects to search for.
- * @returns {Promise<{successfulIds: Array<number>, notFoundTitles: Array<object>, failedToSearchTitles: Array<object>, attemptedCount: number}>}
- * An object containing:
- * - `successfulIds`: An array of TMDB movie IDs that were successfully found.
- * - `notFoundTitles`: An array of original movie objects ({title, year}) that were not found on TMDB.
- * - `failedToSearchTitles`: An array of original movie objects that encountered an error during the search process.
- * - `attemptedCount`: The total number of movies from `moviesList` that were attempted.
- */
-const getMovieIds = async (moviesList) => {
-    const FN_NAME = "getMovieIds";
-    const successfulIds = new Set();
-    const notFoundTitles = [];
-    const failedToSearchTitles = [];
-    const apiKey = process.env.TMDB_API_KEY;
+ * @param {Array<{title: string, year: string|null}>} moviesListParam - An array of movie objects,
+ * where each object has a `title` and an optional `year`.
+ * @returns {Promise<{
+* successfulIds: Array<number>,
+* notFoundTitles: Array<{title: string, year: string|null}>,
+* failedToSearchTitles: Array<{title: string, year: string|null, reason: string, details?: string}>,
+* attemptedCount: number
+* }>} An object containing:
+* - `successfulIds`: An array of unique TMDB movie IDs found.
+* - `notFoundTitles`: An array of original movie objects that were not found on TMDB after all search attempts.
+* - `failedToSearchTitles`: An array of original movie objects for which a search attempt failed due to an error (e.g., missing API key, unexpected error).
+* - `attemptedCount`: The total number of movies from `moviesListParam` that were processed.
+*/
+export const getMovieIds = async (moviesListParam) => {
+   const FN_NAME = "getMovieIds";
+   
+   // Robust check for moviesListParam type to prevent iteration errors
+   if (!Array.isArray(moviesListParam)) {
+       console.error(`${LOG_PREFIX} ERROR: [${FN_NAME}] Input 'moviesListParam' is not an array! Received type: ${typeof moviesListParam}, Value:`, moviesListParam);
+       return { successfulIds: [], notFoundTitles: [], failedToSearchTitles: [], attemptedCount: 0 };
+   }
 
-    if (!apiKey) {
-        console.error(`[TMDBApi][${FN_NAME}] CRITICAL: TMDB_API_KEY for v3 search is missing!`);
-        moviesList.forEach(movie => {
-            failedToSearchTitles.push({ title: movie.title, year: movie.year, reason: 'TMDB_API_KEY missing' });
-        });
-        return { successfulIds: [], notFoundTitles, failedToSearchTitles, attemptedCount: moviesList.length };
-    }
+   const successfulIds = new Set(); // Use a Set to automatically handle duplicate IDs
+   const notFoundTitles = [];
+   const failedToSearchTitles = [];
+   const apiKey = process.env.TMDB_API_KEY; // Ensure TMDB_API_KEY is loaded via dotenv
 
-    console.log(`[TMDBApi][${FN_NAME}] Starting TMDB ID lookup for ${moviesList.length} movies.`);
+   console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Starting TMDB ID lookup for ${moviesListParam.length} movies.`);
 
-    for (const movie of moviesList) {
-        const { title: rawTitle, year: rawScrapedYear } = movie;
-        let movieFoundThisIteration = false;
+   if (!apiKey) {
+       console.error(`${LOG_PREFIX} ERROR: [${FN_NAME}] CRITICAL - TMDB_API_KEY for v3 search is missing! Cannot perform lookups.`);
+       // Populate failedToSearchTitles if API key is missing
+       moviesListParam.forEach(movie => {
+           failedToSearchTitles.push({ 
+               title: movie?.title || 'N/A', 
+               year: movie?.year || 'N/A', 
+               reason: 'TMDB_API_KEY missing' 
+           });
+       });
+       return { successfulIds: [], notFoundTitles, failedToSearchTitles, attemptedCount: moviesListParam.length };
+   }
 
-        try {
-            if (!rawTitle) {
-                console.warn(`[TMDBApi][${FN_NAME}] Skipping movie with no raw title data:`, movie);
-                failedToSearchTitles.push({ title: 'N/A (Title Missing)', year: rawScrapedYear || 'N/A', reason: 'Missing title data from scraper' });
-                continue;
-            }
+   // Iterate over each movie scraped from the source websites
+   for (const movie of moviesListParam) {
+       // Safely destructure title and year from the current movie object
+       const { title: rawTitle, year: rawScrapedYear } = movie || {}; 
+       let movieFoundThisIteration = false; // Flag to track if a TMDB ID was found for the current rawTitle
 
-            const { sanitizedTitle: initialSanitizedTitle, searchYear: initialSearchYear, isLikelyCollection } = normalizeTitleForSearch(rawTitle, rawScrapedYear);
+       try {
+           // Skip if the raw title itself is missing
+           if (!rawTitle) {
+               // console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] Skipping movie with no raw title data:`, movie);
+               failedToSearchTitles.push({ title: 'N/A (Title Missing)', year: rawScrapedYear || 'N/A', reason: 'Missing title data from scraper' });
+               continue;
+           }
 
-            if (!initialSanitizedTitle) {
-                console.warn(`[TMDBApi][${FN_NAME}] Skipping movie because title became empty after initial sanitization (Original: "${rawTitle}"):`, movie);
-                failedToSearchTitles.push({ title: rawTitle, year: rawScrapedYear || 'N/A', reason: 'Title became empty after initial sanitization' });
-                continue;
-            }
-            
-            console.log(`[TMDBApi][${FN_NAME}] Processing: "${rawTitle}" (Scraped Year: ${rawScrapedYear || 'N/A'}) -> Initial Sanitized: "${initialSanitizedTitle}" (Likely Collection: ${isLikelyCollection})`);
+           // Sanitize the title and determine the best initial search year and if it's likely a collection
+           const { sanitizedTitle: initialSanitizedTitle, searchYear: initialSearchYear, isLikelyCollection } = normalizeTitleForSearch(rawTitle, rawScrapedYear);
 
-            // --- Attempt 1: Movie Search with initial sanitized title and year variations ---
-            const searchYearsToTry = [initialSearchYear];
-            if (initialSearchYear && /^\d{4}$/.test(initialSearchYear)) {
-                searchYearsToTry.push(String(parseInt(initialSearchYear, 10) + 1));
-                searchYearsToTry.push(String(parseInt(initialSearchYear, 10) - 1));
-            }
-            const uniqueSearchYears = [...new Set(searchYearsToTry.filter(yr => yr !== null && yr !== undefined))];
-            if (uniqueSearchYears.length === 0 || !uniqueSearchYears.includes(initialSearchYear)) {
-                if(!uniqueSearchYears.includes(null)) uniqueSearchYears.push(null);
-            }
-
-            for (const currentSearchYear of uniqueSearchYears) {
-                if (movieFoundThisIteration) break;
-                console.log(`  [TMDBApi][${FN_NAME}] Attempting movie search for: "${initialSanitizedTitle}" with year: ${currentSearchYear || 'Any'}`);
-                const encodedTitle = encodeURIComponent(initialSanitizedTitle);
-                let movieSearchUrl = `${TMDB_API_CONFIG.BASE_URL_V3}/search/movie?api_key=${apiKey}&query=${encodedTitle}&include_adult=false&language=en-US&page=1`;
-                if (currentSearchYear) movieSearchUrl += `&year=${currentSearchYear}&primary_release_year=${currentSearchYear}`;
-                
-                try {
-                    const movieData = await fetchWithRetry( movieSearchUrl, { method: 'GET', headers: { accept: 'application/json' } }, { movieTitle: initialSanitizedTitle, actionDescription: `search for movie "${initialSanitizedTitle}" (Year: ${currentSearchYear || 'Any'})` });
-                    if (movieData.results?.length > 0) {
-                        let foundM = movieData.results[0];
-                        if (currentSearchYear) {
-                            const yearMatch = movieData.results.find(r => r.release_date?.startsWith(currentSearchYear));
-                            if (yearMatch) foundM = yearMatch;
-                        }
-                        console.log(`    [TMDBApi][${FN_NAME}] SUCCESS: Found TMDB Movie ID ${foundM.id} ("${foundM.title}")`);
-                        successfulIds.add(foundM.id);
-                        movieFoundThisIteration = true;
-                    }
-                } catch (movieSearchError) { /* Logged by fetchWithRetry */ }
-            }
-
-            // --- Attempt 2: If not found and original title contained '&', split and search parts ---
-            if (!movieFoundThisIteration && rawTitle.includes(' & ')) {
-                console.log(`  [TMDBApi][${FN_NAME}] Movie not found for "${initialSanitizedTitle}". Original title contained '&', attempting to split and search parts.`);
-                const parts = rawTitle.split(' & ').map(p => p.trim()).filter(p => p.length > 0);
-                
-                for (const partTitle of parts) {
-                    // We want to find *any* part, so if one part is found, we don't necessarily stop for this "multi-part" entry.
-                    // However, if a part is found, it contributes to the overall success for `rawTitle`.
-                    const { sanitizedTitle: partSanitized, searchYear: partSearchYear } = normalizeTitleForSearch(partTitle, rawScrapedYear); // Re-sanitize each part
-                    if (!partSanitized) continue;
-
-                    const partSearchYearsToTry = [partSearchYear];
-                     if (partSearchYear && /^\d{4}$/.test(partSearchYear)) {
-                        partSearchYearsToTry.push(String(parseInt(partSearchYear, 10) + 1));
-                        partSearchYearsToTry.push(String(parseInt(partSearchYear, 10) - 1));
-                    }
-                    const uniquePartSearchYears = [...new Set(partSearchYearsToTry.filter(yr => yr !== null && yr !== undefined))];
-                    if (uniquePartSearchYears.length === 0) uniquePartSearchYears.push(null);
+           if (!initialSanitizedTitle) {
+               // console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] Skipping movie because title became empty after initial sanitization (Original: "${rawTitle}"):`, movie);
+               failedToSearchTitles.push({ title: rawTitle, year: rawScrapedYear || 'N/A', reason: 'Title became empty after initial sanitization' });
+               continue;
+           }
+           
+           // console.log(`${LOG_PREFIX} DEBUG: [${FN_NAME}] Processing: "${rawTitle}" (Scraped Year: ${rawScrapedYear || 'N/A'}) -> Initial Sanitized: "${initialSanitizedTitle}" (Search Year: ${initialSearchYear || 'None'}, Likely Collection: ${isLikelyCollection})`);
+           
+           // --- Attempt 1: Movie Search with initial sanitized title and year variations ---
+           // Prepare an array of years to try: the initial search year, year+1, year-1, and null (for no year).
+           const searchYearsToTry = [initialSearchYear];
+           if (initialSearchYear && /^\d{4}$/.test(initialSearchYear)) { // Check if initialSearchYear is a valid 4-digit year
+               searchYearsToTry.push(String(parseInt(initialSearchYear, 10) + 1));
+               searchYearsToTry.push(String(parseInt(initialSearchYear, 10) - 1));
+           }
+           // Filter out null/undefined years and ensure uniqueness, then add `null` if not already present to try a yearless search.
+           const uniqueSearchYears = [...new Set(searchYearsToTry.filter(yr => yr != null))]; // `!= null` checks for both null and undefined
+           if (!uniqueSearchYears.includes(null)) { // Ensure a search without a year is attempted
+               uniqueSearchYears.push(null);
+           }
 
 
-                    for (const currentPartSearchYear of uniquePartSearchYears) {
-                        console.log(`    [TMDBApi][${FN_NAME}] Attempting movie search for part: "${partSanitized}" with year: ${currentPartSearchYear || 'Any'}`);
-                        const encodedPartTitle = encodeURIComponent(partSanitized);
-                        let partSearchUrl = `${TMDB_API_CONFIG.BASE_URL_V3}/search/movie?api_key=${apiKey}&query=${encodedPartTitle}&include_adult=false&language=en-US&page=1`;
-                        if (currentPartSearchYear) partSearchUrl += `&year=${currentPartSearchYear}&primary_release_year=${currentPartSearchYear}`;
+           for (const currentSearchYear of uniqueSearchYears) {
+               if (movieFoundThisIteration) break; // If found in a previous year attempt, skip further year variations for this title
 
-                        try {
-                            const movieData = await fetchWithRetry( partSearchUrl, { method: 'GET', headers: { accept: 'application/json' } }, { movieTitle: partSanitized, actionDescription: `search for movie part "${partSanitized}" (Year: ${currentPartSearchYear || 'Any'})` });
-                            if (movieData.results?.length > 0) {
-                                let foundM = movieData.results[0];
-                                if (currentPartSearchYear) {
-                                    const yearMatch = movieData.results.find(r => r.release_date?.startsWith(currentPartSearchYear));
-                                    if (yearMatch) foundM = yearMatch;
-                                }
-                                console.log(`      [TMDBApi][${FN_NAME}] SUCCESS (part): Found TMDB Movie ID ${foundM.id} ("${foundM.title}") for part "${partSanitized}"`);
-                                successfulIds.add(foundM.id);
-                                movieFoundThisIteration = true;
-                            }
-                        } catch (partSearchError) { /* Logged by fetchWithRetry */ }
-                        if (movieFoundThisIteration && uniquePartSearchYears.length > 1) break; // If found for this part, no need to try other years for *this part*
-                    }
-                }
-            }
+               // console.log(`  [TMDBApi][${FN_NAME}] Attempting movie search for: "${initialSanitizedTitle}" with year: ${currentSearchYear || 'Any'}`);
+               const encodedTitle = encodeURIComponent(initialSanitizedTitle);
+               let movieSearchUrl = `${TMDB_API_CONFIG.BASE_URL_V3}/search/movie?api_key=${apiKey}&query=${encodedTitle}&include_adult=false&language=en-US&page=1`;
+               if (currentSearchYear) {
+                   movieSearchUrl += `&year=${currentSearchYear}&primary_release_year=${currentSearchYear}`;
+               }
+               
+               try {
+                   const movieData = await fetchWithRetry(
+                       movieSearchUrl,
+                       { method: 'GET', headers: { accept: 'application/json' } },
+                       { movieTitle: initialSanitizedTitle, actionDescription: `search for movie "${initialSanitizedTitle}" (Year: ${currentSearchYear || 'Any'})` }
+                   );
+                   if (movieData.results?.length > 0) {
+                       let foundM = movieData.results[0]; // Default to the first, most relevant result from TMDB
+                       // If a specific year was used in the search, try to find an exact match within the results.
+                       if (currentSearchYear) {
+                           const yearMatch = movieData.results.find(r => r.release_date?.startsWith(currentSearchYear));
+                           if (yearMatch) foundM = yearMatch;
+                       }
+                       // console.log(`    [TMDBApi][${FN_NAME}] SUCCESS: Found TMDB Movie ID ${foundM.id} ("${foundM.title}") for query "${initialSanitizedTitle}" (Year: ${currentSearchYear || 'Any'})`);
+                       successfulIds.add(foundM.id);
+                       movieFoundThisIteration = true;
+                   }
+               } catch (movieSearchError) {
+                   // Errors from fetchWithRetry (after retries or for non-retryable issues) are already logged by it.
+                   // No additional logging here unless specific to this search failing.
+               }
+           }
 
-            // --- Attempt 3: Collection Search (if still not found AND it's likely a collection) ---
-            if (!movieFoundThisIteration && isLikelyCollection) {
-                console.log(`  [TMDBApi][${FN_NAME}] Movie/parts search yielded no results for "${initialSanitizedTitle}". Attempting collection search.`);
-                const collectionQuery = normalizeTitleForSearch(rawTitle, null).sanitizedTitle || rawTitle; // Use a title more suitable for collection name
-                const collectionId = await searchForTmdbCollectionByName(apiKey, collectionQuery, rawTitle);
-                if (collectionId) {
-                    const collectionMovieIds = await getMovieIdsFromTmdbCollection(apiKey, collectionId, collectionQuery);
-                    if (collectionMovieIds.length > 0) {
-                        console.log(`    [TMDBApi][${FN_NAME}] Added ${collectionMovieIds.length} movies from collection "${collectionQuery}" for original title "${rawTitle}".`);
-                        collectionMovieIds.forEach(id => successfulIds.add(id));
-                        movieFoundThisIteration = true; 
-                    }
-                }
-            }
+           // --- Attempt 2: If not found and original title contained '&', split and search parts ---
+           // This handles titles like "Film A & Film B" by searching for "Film A" and "Film B" separately.
+           if (!movieFoundThisIteration && rawTitle.includes(' & ')) {
+               // console.log(`  [TMDBApi][${FN_NAME}] Movie not found for "${initialSanitizedTitle}". Original title contained '&', attempting to split and search parts.`);
+               const parts = rawTitle.split(' & ').map(p => p.trim()).filter(p => p.length > 0);
+               
+               for (const partTitle of parts) {
+                   // Sanitize and determine search year for each part individually.
+                   const { sanitizedTitle: partSanitized, searchYear: partInitialSearchYear } = normalizeTitleForSearch(partTitle, rawScrapedYear);
+                   if (!partSanitized) continue; // Skip if a part becomes empty after sanitization
 
-            if (!movieFoundThisIteration) {
-                console.warn(`  [TMDBApi][${FN_NAME}] FINAL: No TMDB movies or collection parts found for: "${initialSanitizedTitle}" (Original: "${rawTitle}", Original year: ${rawScrapedYear || 'N/A'})`);
-                notFoundTitles.push({ title: rawTitle, year: rawScrapedYear });
-            }
+                   const partSearchYearsToTry = [partInitialSearchYear];
+                    if (partInitialSearchYear && /^\d{4}$/.test(partInitialSearchYear)) {
+                       partSearchYearsToTry.push(String(parseInt(partInitialSearchYear, 10) + 1));
+                       partSearchYearsToTry.push(String(parseInt(partInitialSearchYear, 10) - 1));
+                   }
+                   const uniquePartSearchYears = [...new Set(partSearchYearsToTry.filter(yr => yr != null))];
+                   if (!uniquePartSearchYears.includes(null)) uniquePartSearchYears.push(null);
 
-        } catch (error) {
-            console.error(`[TMDBApi][${FN_NAME}] Unexpected error processing movie "${rawTitle}" (${rawScrapedYear || 'N/A'}): ${error.message}`, error.stack || '');
-            failedToSearchTitles.push({ title: rawTitle, year: rawScrapedYear, reason: 'Unexpected error in getMovieIds main loop', details: error.message });
-        }
-    }
+                   for (const currentPartSearchYear of uniquePartSearchYears) {
+                       if (movieFoundThisIteration && parts.length > 1) break; // If one part is found, we might consider the original "multi-title" entry handled.
 
-    console.log(`[TMDBApi][${FN_NAME}] Finished TMDB ID lookup. Found: ${successfulIds.size} unique IDs, Not Found (original titles): ${notFoundTitles.length}, Failed Search (original titles): ${failedToSearchTitles.length}`);
-    return { 
-        successfulIds: Array.from(successfulIds), 
-        notFoundTitles, 
-        failedToSearchTitles,
-        attemptedCount: moviesList.length 
-    };
+                       // console.log(`    [TMDBApi][${FN_NAME}] Attempting movie search for part: "${partSanitized}" with year: ${currentPartSearchYear || 'Any'}`);
+                       const encodedPartTitle = encodeURIComponent(partSanitized);
+                       let partSearchUrl = `${TMDB_API_CONFIG.BASE_URL_V3}/search/movie?api_key=${apiKey}&query=${encodedPartTitle}&include_adult=false&language=en-US&page=1`;
+                       if (currentPartSearchYear) partSearchUrl += `&year=${currentPartSearchYear}&primary_release_year=${currentPartSearchYear}`;
+
+                       try {
+                           const movieData = await fetchWithRetry( partSearchUrl, { method: 'GET', headers: { accept: 'application/json' } }, { movieTitle: partSanitized, actionDescription: `search for movie part "${partSanitized}" (Year: ${currentPartSearchYear || 'Any'})` });
+                           if (movieData.results?.length > 0) {
+                               let foundM = movieData.results[0];
+                               if (currentPartSearchYear) {
+                                   const yearMatch = movieData.results.find(r => r.release_date?.startsWith(currentPartSearchYear));
+                                   if (yearMatch) foundM = yearMatch;
+                               }
+                               // console.log(`      [TMDBApi][${FN_NAME}] SUCCESS (part): Found TMDB Movie ID ${foundM.id} ("${foundM.title}") for part "${partSanitized}"`);
+                               successfulIds.add(foundM.id);
+                               movieFoundThisIteration = true; 
+                               if (uniquePartSearchYears.length > 1) break; // Found this part with a year, no need to try other years for *this part*.
+                           }
+                       } catch (partSearchError) { /* Logged by fetchWithRetry */ }
+                   }
+                   if (movieFoundThisIteration && parts.length > 1) break; // If one part of an '&' title is found, stop searching other parts.
+               }
+           }
+
+           // --- Attempt 3: Collection Search (if still not found AND it's marked as likely a collection) ---
+           if (!movieFoundThisIteration && isLikelyCollection) {
+               // console.log(`  [TMDBApi][${FN_NAME}] Movie/parts search yielded no results for "${initialSanitizedTitle}". Attempting collection search.`);
+               // For collection search, the raw title (or a version more suitable for collection names) might be better.
+               const collectionQuery = normalizeTitleForSearch(rawTitle, null).sanitizedTitle || rawTitle; 
+               
+               const collectionId = await searchForTmdbCollectionByName(apiKey, collectionQuery, rawTitle);
+               if (collectionId) {
+                   const collectionMovieIds = await getMovieIdsFromTmdbCollection(apiKey, collectionId, collectionQuery);
+                   if (collectionMovieIds.length > 0) {
+                       // console.log(`    [TMDBApi][${FN_NAME}] Added ${collectionMovieIds.length} movies from collection "${collectionQuery}" for original title "${rawTitle}".`);
+                       collectionMovieIds.forEach(id => successfulIds.add(id));
+                       movieFoundThisIteration = true; // Mark as found (via collection this time)
+                   }
+               }
+           }
+
+           // If after all attempts (direct movie, split parts, collection) the movie is still not found, add to notFoundTitles.
+           if (!movieFoundThisIteration) {
+               // console.warn(`  [TMDBApi][${FN_NAME}] FINAL: No TMDB movies or collection parts found for: "${initialSanitizedTitle}" (Original: "${rawTitle}", Original year: ${rawScrapedYear || 'N/A'})`);
+               notFoundTitles.push({ title: rawTitle, year: rawScrapedYear });
+           }
+
+       } catch (error) { // Catch errors from the outer try block for this specific movie's processing loop
+           console.error(`${LOG_PREFIX} ERROR: [${FN_NAME}] Unexpected error processing movie "${rawTitle}" (${rawScrapedYear || 'N/A'}): ${error.message}`, error.stack || '');
+           failedToSearchTitles.push({ title: rawTitle, year: rawScrapedYear, reason: 'Unexpected error in getMovieIds main processing loop', details: error.message });
+       }
+   }
+
+   console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Finished TMDB ID lookup. Found: ${successfulIds.size} unique IDs, Not Found (original titles): ${notFoundTitles.length}, Failed Search (original titles): ${failedToSearchTitles.length}`);
+   return { 
+       successfulIds: Array.from(successfulIds), // Convert Set to Array for the return value
+       notFoundTitles, 
+       failedToSearchTitles,
+       attemptedCount: moviesListParam.length 
+   };
 };
 
 /**
  * Adds or updates items in a TMDB list in batches.
- * It distinguishes between critical batch API failures and individual item addition failures.
+ * This function is called after TMDB IDs for movies have been looked up.
+ * It handles potential individual item failures (e.g., "media already taken") differently
+ * from critical failures of an entire batch API call (e.g., network errors, 504 timeouts).
  *
  * @async
  * @function updateList
- * @param {object} accessToken - The TMDB user access token object.
- * @param {object} listData - Object containing list title and original movie data.
- * @param {{successfulIds: Array<number>, movieLookupFailures: {notFoundTitles: Array<object>, failedToSearchTitles: Array<object>}}} idLookupResult
- * The result from `getMovieIds`, containing TMDB IDs to add and any lookup failures.
- * @returns {Promise<{itemsAttemptedCount: number, itemsSuccessfullyAddedCount: number, movieLookupFailures: object}>}
- * An object with counts of items attempted, successfully added/confirmed, and any movie lookup failures.
- * @throws {Error} If a critical, unrecoverable error occurs during batch processing (e.g., auth error, repeated server errors).
- */
+ * @param {object} accessToken - The TMDB user access token object (containing `access_token`).
+ * @param {object} listData - An object containing the list's `title`.
+ * @param {object} idLookupResult - The result from `getMovieIds`.
+ * @param {Array<number>} idLookupResult.successfulIds - Array of TMDB movie IDs to add/update.
+ * @param {object} idLookupResult.movieLookupFailures - Object containing `notFoundTitles` and `failedToSearchTitles`.
+ * @param {number} idLookupResult.attemptedCount - The number of movies for which ID lookup was attempted.
+ * @returns {Promise<{
+* itemsAttemptedCount: number,
+* itemsSuccessfullyAddedCount: number,
+* movieLookupFailures: object
+* }>} An object with statistics:
+* - `itemsAttemptedCount`: Number of TMDB IDs that were attempted to be added/updated.
+* - `itemsSuccessfullyAddedCount`: Number of items TMDB reported as successfully added OR confirmed as already present.
+* - `movieLookupFailures`: The passed-through movie lookup failures.
+* @throws {Error} If a critical, unrecoverable error occurs during batch processing (e.g., auth error, repeated server errors for a batch).
+* The error object will have statistics attached.
+*/
 const updateList = async (accessToken, listData, idLookupResult) => {
     const FN_NAME = "updateList";
     const listTitle = listData.title;
-    let listId; // To store the fetched list ID
+    let listId;
 
     // Initialize stats and failures based on the pre-fetched ID lookup results
     let movieLookupFailures = idLookupResult.movieLookupFailures || { notFoundTitles: [], failedToSearchTitles: [] };
-    const movieIdsToUpdate = idLookupResult.successfulIds || [];
-    let itemsAttemptedCount = movieIdsToUpdate.length;
-    let itemsSuccessfullyAddedOrConfirmedCount = 0;
+    const movieIdsToUpdate = idLookupResult.successfulIds || []; // Ensure it's an array for .length and .slice
+    let itemsAttemptedCount = movieIdsToUpdate.length; 
+    let itemsSuccessfullyAddedOrConfirmedCount = 0; // Counts items successfully added OR already present
 
     try {
+        // --- Pre-checks ---
         if (!listTitle) {
             throw new Error('Title for list was not provided in the listData.');
         }
-        listId = await getListId(accessToken, listTitle); // Assumes getListId uses fetchWithRetry
+        // console.log(`${LOG_PREFIX} DEBUG: [${FN_NAME}] Getting List ID for "${listTitle}"`);
+        listId = await getListId(accessToken, listTitle); // Uses fetchWithRetry
         if (!listId) {
             throw new Error(`List with name: "${listTitle}" does not exist and cannot be updated.`);
         }
 
+        // If no valid TMDB IDs were found to update, exit early.
         if (movieIdsToUpdate.length === 0) {
-            if (listData.movieData?.length > 0 && idLookupResult.attemptedCount > 0) { // Check if there was original data to look up
+            if (listData.movieData?.length > 0 && idLookupResult.attemptedCount > 0) {
                 console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] No TMDB movie IDs were resolved for list "${listTitle}", though ${listData.movieData.length} items were scraped. Skipping update.`);
             } else {
                 console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] No movie IDs to add to list "${listTitle}". Skipping update.`);
@@ -530,68 +566,86 @@ const updateList = async (accessToken, listData, idLookupResult) => {
         }
 
         console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Preparing to update list ID ${listId} ("${listTitle}") with ${itemsAttemptedCount} items.`);
-        const BATCH_SIZE = 100; // TMDB API v4 /list/{id}/items has a limit, often around 100-250. 100 is safe.
-        let anyCriticalBatchFailure = false;
+        
+        // --- Batch Processing ---
+        const BATCH_SIZE = 100; // TMDB API v4 /list/{id}/items often has a limit (e.g., 100-250).
+        let anyCriticalBatchFailure = false; // Flag to track if any batch API call critically fails
 
         for (let i = 0; i < movieIdsToUpdate.length; i += BATCH_SIZE) {
             const batchMovieIds = movieIdsToUpdate.slice(i, i + BATCH_SIZE);
             const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
             const totalBatches = Math.ceil(movieIdsToUpdate.length / BATCH_SIZE);
             
+            console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Processing batch ${batchNumber}/${totalBatches} for list "${listTitle}" (items ${i + 1} to ${i + batchMovieIds.length})`);
+
             const url = `${TMDB_API_CONFIG.BASE_URL_V4}/list/${listId}/items`;
             const options = {
                 method: 'POST',
-                headers: { accept: 'application/json', 'content-type': 'application/json', Authorization: `Bearer ${accessToken.access_token}`},
-                body: JSON.stringify({ items: batchMovieIds.map(id => ({ media_type: 'movie', media_id: id })) })
+                headers: { 
+                    accept: 'application/json', 
+                    'content-type': 'application/json', 
+                    Authorization: `Bearer ${accessToken.access_token}`
+                },
+                body: JSON.stringify({ 
+                    items: batchMovieIds.map(id => ({ media_type: 'movie', media_id: id })) 
+                })
             };
             
             try {
+                // fetchWithRetry handles HTTP errors and retries for server issues (5xx)
                 const responseData = await fetchWithRetry(
                     url,
                     options,
                     { listTitle, actionDescription: `update batch ${batchNumber}/${totalBatches} for list ID ${listId}` }
                 );
                 
-                let individualItemFailuresInBatchCount = 0;
+                // Initialize counters for this specific batch's outcome
+                let individualItemUnexpectedFailuresCount = 0;
                 let individualItemSuccessesOrConfirmedInBatchCount = 0;
 
+                // Process results if the API call was successful and returned expected structure
                 if (responseData?.results && Array.isArray(responseData.results)) {
                     const actualFailedItemsDetails = [];
                     responseData.results.forEach(itemResult => {
+                        // Check if the item was successfully added OR if it failed because it was "already taken"
                         const isAlreadyTaken = itemResult.success === false && 
-                                               itemResult.error?.some(errMsg => typeof errMsg === 'string' && errMsg.toLowerCase().includes('media has already been taken'));
+                                                itemResult.error?.some(errMsg => typeof errMsg === 'string' && errMsg.toLowerCase().includes('media has already been taken'));
                         
                         if (itemResult.success === true || isAlreadyTaken) {
-                            itemsSuccessfullyAddedOrConfirmedCount++;
-                            individualItemSuccessesOrConfirmedInBatchCount++;
+                            itemsSuccessfullyAddedOrConfirmedCount++; // Increment global list counter
+                            individualItemSuccessesOrConfirmedInBatchCount++; // Increment batch-specific counter
                         } else {
-                            individualItemFailuresInBatchCount++;
-                            actualFailedItemsDetails.push(itemResult);
+                            individualItemUnexpectedFailuresCount++;
+                            actualFailedItemsDetails.push(itemResult); // Collect details of actual, unexpected failures
                         }
                     });
-                    if (individualItemFailuresInBatchCount > 0) {
-                        console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] Batch ${batchNumber} for list "${listTitle}": ${individualItemFailuresInBatchCount} item(s) had unexpected failures. Items confirmed/added: ${individualItemSuccessesOrConfirmedInBatchCount}. Failures:`, actualFailedItemsDetails);
+                    if (individualItemUnexpectedFailuresCount > 0) {
+                        console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Batch ${batchNumber} for list "${listTitle}" processed. Items confirmed/added: ${individualItemSuccessesOrConfirmedInBatchCount}. Unexpected item failures: ${individualItemUnexpectedFailuresCount}.`);
+                    } else {
+                        console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Batch ${batchNumber} for list "${listTitle}" processed. All ${individualItemSuccessesOrConfirmedInBatchCount} items in batch were successfully added or already present.`);
                     }
                 } else if (responseData && typeof responseData.success === 'boolean' && responseData.success === false) {
-                    console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] Batch ${batchNumber} for list "${listTitle}" reported overall failure by TMDB. Response:`, responseData);
-                    anyCriticalBatchFailure = true;
+                    // Case: TMDB returns a top-level `success: false` for the whole batch, even on HTTP 2xx.
+                    console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] Batch ${batchNumber} for list "${listTitle}" reported overall failure by TMDB (e.g., top-level success:false). Response:`, responseData);
+                    anyCriticalBatchFailure = true; // Treat this as a critical failure for this batch.
                 } else if (responseData && typeof responseData.success === 'boolean' && responseData.success === true && !responseData.results) {
-                    // This means TMDB acknowledged the batch as successful but didn't return individual item statuses.
+                    // Case: TMDB returns overall success for the batch without individual item statuses.
                     // Assume all items in this batch were processed as intended (added or were already there).
                     console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Batch ${batchNumber} for list "${listTitle}" reported overall success by TMDB. Assuming all ${batchMovieIds.length} items in batch were processed.`);
                     itemsSuccessfullyAddedOrConfirmedCount += batchMovieIds.length;
                     individualItemSuccessesOrConfirmedInBatchCount = batchMovieIds.length;
                 } else if (!responseData || (!Array.isArray(responseData.results) && typeof responseData.success !== 'boolean')) {
-                     // This case means the response format from TMDB was not what we expected for this endpoint.
-                     console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] Batch ${batchNumber} for list "${listTitle}" processed, but TMDB response format was unexpected. Response:`, responseData);
-                     anyCriticalBatchFailure = true; // Treat unexpected format as a critical issue for the batch.
+                        // Case: Response format from TMDB was unexpected after a successful HTTP call.
+                        console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] Batch ${batchNumber} for list "${listTitle}" processed, but TMDB response format was unexpected. Response:`, responseData);
+                        anyCriticalBatchFailure = true; // Treat unexpected format as a critical issue for this batch.
                 }
 
-                if (!anyCriticalBatchFailure) {
-                    console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Batch ${batchNumber} for list "${listTitle}" processed. Items confirmed/added in batch: ${individualItemSuccessesOrConfirmedInBatchCount}. Unexpected failures in batch: ${individualItemFailuresInBatchCount}.`);
+                // Log summary for the current batch if no critical failure was flagged for its API call/content.
+                if (!anyCriticalBatchFailure) { 
+                    console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Batch ${batchNumber} for list "${listTitle}" processed. Items confirmed/added in batch: ${individualItemSuccessesOrConfirmedInBatchCount}. Unexpected failures in batch: ${individualItemUnexpectedFailuresCount}.`);
                 }
 
-            } catch (batchError) { // Catches critical errors from fetchWithRetry (after all retries, or non-retryable errors)
+            } catch (batchError) { // This catches critical errors from fetchWithRetry (e.g., after all retries, or non-retryable 4xx errors)
                 console.error(`${LOG_PREFIX} ERROR: [${FN_NAME}] CRITICAL error processing batch ${batchNumber} for list "${listTitle}" after retries: ${batchError.message}`);
                 anyCriticalBatchFailure = true;
                 // If an authentication/authorization error occurs, stop processing further batches for this list.
@@ -601,15 +655,16 @@ const updateList = async (accessToken, listData, idLookupResult) => {
                 }
             }
 
-            // Add delay only if there are more batches AND the loop wasn't broken by an auth error.
+            // Add delay between batches if there are more batches to process and the loop wasn't broken.
             if (i + BATCH_SIZE < movieIdsToUpdate.length) {
-                 await new Promise(resolve => setTimeout(resolve, 500)); // 0.5 second delay
+                    await new Promise(resolve => setTimeout(resolve, 500)); // 0.5 second delay
             }
-        } // End of for loop (batches)
+        }
 
+        // After all batches are processed, check if any critical failure occurred.
         if (anyCriticalBatchFailure) {
             const error = new Error(`One or more batches had critical API failures for list "${listTitle}"`);
-            // Attach collected stats to the error for reporting
+            // Attach collected stats to the error for reporting purposes.
             error.movieLookupFailures = movieLookupFailures;
             error.itemsAttemptedCount = itemsAttemptedCount;
             error.itemsSuccessfullyAddedCount = itemsSuccessfullyAddedOrConfirmedCount;
@@ -617,24 +672,22 @@ const updateList = async (accessToken, listData, idLookupResult) => {
         } else {
             console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] All item batches for list "${listTitle}" (ID: ${listId}) were processed. Total items confirmed on list (added or already present): ${itemsSuccessfullyAddedOrConfirmedCount}/${itemsAttemptedCount}.`);
         }
-        // Return all relevant stats
+        // Return all relevant stats on successful completion of all batches.
         return { itemsAttemptedCount, itemsSuccessfullyAddedCount: itemsSuccessfullyAddedOrConfirmedCount, movieLookupFailures };
 
     } catch (error) { // Outer catch for setup errors (e.g., getListId) or errors propagated from critical batch failures
         const currentListTitle = listData?.title || 'Unknown Title (listData or listData.title missing in catch)';
-        // Ensure all relevant stats are attached to the error object before re-throwing
-        if (!error.movieLookupFailures && (movieLookupFailures.notFoundTitles.length > 0 || movieLookupFailures.failedToSearchTitles.length > 0)) {
-            error.movieLookupFailures = movieLookupFailures;
-        }
-        if (error.itemsAttemptedCount === undefined) error.itemsAttemptedCount = itemsAttemptedCount;
-        if (error.itemsSuccessfullyAddedCount === undefined) error.itemsSuccessfullyAddedCount = itemsSuccessfullyAddedOrConfirmedCount;
+        // Ensure all relevant stats are attached to the error object before re-throwing.
+        error.movieLookupFailures = error.movieLookupFailures || movieLookupFailures;
+        error.itemsAttemptedCount = error.itemsAttemptedCount === undefined ? itemsAttemptedCount : error.itemsAttemptedCount;
+        error.itemsSuccessfullyAddedCount = error.itemsSuccessfullyAddedCount === undefined ? itemsSuccessfullyAddedOrConfirmedCount : error.itemsSuccessfullyAddedCount;
         
         // Re-throw known, contextualized errors directly.
         if (error.message.startsWith('TMDB API Error') || 
             error.message.startsWith('One or more batches had critical API failures') ||
-            error.message.includes('not provided in the listData') || // from title check
-            error.message.includes('does not exist and cannot be updated') || // from listId check
-            error.message.startsWith('Failed to get list ID for') ) { // from getListId
+            error.message.includes('not provided in the listData') || 
+            error.message.includes('does not exist and cannot be updated') || 
+            error.message.startsWith('Failed to get list ID for') ) {
             throw error;
         }
         // For truly unexpected errors within this function's logic
@@ -650,9 +703,10 @@ const updateList = async (accessToken, listData, idLookupResult) => {
 
 /**
  * Orchestrates the process of creating a new TMDB list or updating an existing one.
- * It first attempts to find TMDB IDs for the provided movie data, then proceeds
- * to create the list if it doesn't exist, and finally updates the list with the found movie IDs.
- * This function also gathers and returns processing statistics.
+ * It first calls `getMovieIds` to find TMDB IDs for the provided movie data.
+ * Then, it creates the list if it doesn't exist.
+ * Finally, it calls `updateList` to add/update items in the list using the found TMDB movie IDs.
+ * This function gathers and returns comprehensive processing statistics.
  *
  * @async
  * @function createOrUpdateList
@@ -699,7 +753,7 @@ export const createOrUpdateList = async (accessToken, listData) => {
 
         // Call getMovieIds ONCE here to get IDs and lookup failures for stats and for updateList
         console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Looking up TMDB IDs for ${listData.movieData?.length || 0} items for list "${listData.title}"...`);
-        const idLookupResult = await getMovieIds(accessToken, listData.movieData); // Uses fetchWithRetry for its searches
+        const idLookupResult = await getMovieIds(listData.movieData); 
         
         // Populate stats from getMovieIds result
         processingStats.tmdbIdsFoundCount = idLookupResult.successfulIds?.length || 0;
@@ -708,14 +762,14 @@ export const createOrUpdateList = async (accessToken, listData) => {
             failedToSearchTitles: idLookupResult.failedToSearchTitles || []
         };
         
-        console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] For list "${listData.title}", TMDB IDs found: ${processingStats.tmdbIdsFoundCount}. Attempted lookups: ${idLookupResult.attemptedCount}.`);
+        console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] For list "${listData.title}", TMDB IDs found: ${processingStats.tmdbIdsFoundCount}. Original items for lookup: ${idLookupResult.attemptedCount}.`);
 
         // Pass the full idLookupResult (which includes successfulIds) to updateList
         const updateResult = await updateList(accessToken, listData, idLookupResult); 
         
         // Populate remaining stats from updateList result
         processingStats.itemsAttemptedCount = updateResult.itemsAttemptedCount;
-        processingStats.itemsSuccessfullyAddedCount = updateResult.itemsSuccessfullyAddedCount; // This is itemsSuccessfullyAddedOrConfirmedCount
+        processingStats.itemsSuccessfullyAddedCount = updateResult.itemsSuccessfullyAddedCount;
         // movieLookupFailures in processingStats is already set from the initial idLookupResult
 
         console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Finished processing for list "${listData.title}". TMDB IDs Found: ${processingStats.tmdbIdsFoundCount}, Items Confirmed on List: ${processingStats.itemsSuccessfullyAddedCount}/${processingStats.itemsAttemptedCount}`);
@@ -724,10 +778,10 @@ export const createOrUpdateList = async (accessToken, listData) => {
     } catch (error) {
         console.error(`${LOG_PREFIX} ERROR: [${FN_NAME}] Error during processing for list "${listData.title}": ${error.message}`, error.stack || '');
         // Ensure all available stats are attached to the error object before re-throwing
-        if (error.scrapedItemsCount === undefined) error.scrapedItemsCount = processingStats.scrapedItemsCount;
-        if (error.tmdbIdsFoundCount === undefined) error.tmdbIdsFoundCount = processingStats.tmdbIdsFoundCount;
-        if (error.itemsAttemptedCount === undefined) error.itemsAttemptedCount = processingStats.itemsAttemptedCount;
-        if (error.itemsSuccessfullyAddedCount === undefined) error.itemsSuccessfullyAddedCount = processingStats.itemsSuccessfullyAddedCount;
+        error.scrapedItemsCount = error.scrapedItemsCount === undefined ? processingStats.scrapedItemsCount : error.scrapedItemsCount;
+        error.tmdbIdsFoundCount = error.tmdbIdsFoundCount === undefined ? processingStats.tmdbIdsFoundCount : error.tmdbIdsFoundCount;
+        error.itemsAttemptedCount = error.itemsAttemptedCount === undefined ? processingStats.itemsAttemptedCount : error.itemsAttemptedCount;
+        error.itemsSuccessfullyAddedCount = error.itemsSuccessfullyAddedCount === undefined ? processingStats.itemsSuccessfullyAddedCount : error.itemsSuccessfullyAddedCount;
         
         if (!error.movieLookupFailures && (processingStats.movieLookupFailures.notFoundTitles?.length > 0 || processingStats.movieLookupFailures.failedToSearchTitles?.length > 0)) {
             error.movieLookupFailures = processingStats.movieLookupFailures;

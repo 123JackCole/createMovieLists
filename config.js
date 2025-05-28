@@ -22,6 +22,7 @@
  * @property {string} VINEGAR_SYNDROME - Base URL for Vinegar Syndrome general releases (paginated).
  * @property {string} VINEGAR_SYNDROME_4K - Base URL for Vinegar Syndrome 4K UHD releases (paginated).
  * @property {string} MASTERS_OF_CINEMA - Base URL for Masters of Cinema list (paginated with hash).
+ * @property {string} SIFF - Base URL for the SIFF Film Finder (paginated).
  */
 export const SCRAPER_URLS = {
     CRITERION: 'https://www.criterion.com/shop/browse/list?sort=spine_number&format=blu-ray,dvd',
@@ -67,15 +68,27 @@ export const CRITERION_COLLECTION_DETAIL_SELECTORS = {
 /**
  * CSS selectors for scraping the Vinegar Syndrome website product listing pages.
  * @type {object}
- * @property {string} PRODUCT_ITEM - Selector for the main container of each product/movie item.
- * @property {string} TITLE - Selector for the element containing the product title.
- * @note Vinegar Syndrome list pages typically do not display the release year directly with each item.
- * The scraper for this site primarily extracts titles.
+ * @property {string} PRODUCT_WRAPPER - Selector for the main div container of each product item on the list page.
+ * @property {string} DETAIL_PAGE_LINK - Selector for the `<a>` tag within a product item that links to its detail page.
+ * @property {string} TITLE_ON_LIST_PAGE - Selector for the element containing the product title on the list page (often within the DETAIL_PAGE_LINK).
  */
 export const VINEGAR_SYNDROME_SELECTORS = {
-    PRODUCT_ITEM: '.product-info',
-    TITLE: '.prod-title'
-    // Note: Vinegar Syndrome might not have a readily available year on the main list page.
+    FILM_COLLECTION_SELECTOR: '.collection__page-products', // Class of main div containing all movies
+    PRODUCT_WRAPPER: '.collection__page-product.js-product-listing', // More specific wrapper for each item
+    DETAIL_PAGE_LINK: '.product-info-inner > a', // Link to the detail page
+    TITLE_ON_LIST_PAGE: '.prod-title', // The title span, child of the DETAIL_PAGE_LINK
+};
+
+/**
+ * CSS selectors for scraping individual film or collection detail pages on the Vinegar Syndrome website.
+ * @type {object}
+ * @property {string} DESCRIPTION_CONTAINER - Selector for the main product description `div` which contains details.
+ * @note For collections on Vinegar Syndrome, individual film titles are often within `<strong>` tags inside paragraphs
+ * within the DESCRIPTION_CONTAINER. Year information is typically in subsequent paragraphs containing "directed by:".
+ * The scraper uses these cues rather than direct selectors for individual film years within collections.
+ */
+export const VINEGAR_SYNDROME_DETAIL_SELECTORS = {
+    DESCRIPTION_CONTAINER: '.product__section--desc.product__decription-container',
 };
 
 /**
@@ -88,24 +101,34 @@ export const VINEGAR_SYNDROME_SELECTORS = {
  */
 export const MASTERS_OF_CINEMA_SELECTORS = {
     PAGE_DATA_GRID_CONTAINER: '.data-grid-container', // Used to wait for the main content grid to load
-    MOVIE_ITEM: '.data-grid-item',                  // Each individual movie card
-    TITLE: '.title',                                // The title text within a card
-    DETAILS_ELEMENT: 'small'                        // Elements containing director and year/country info
+    MOVIE_ITEM: '.data-grid-item', // Each individual movie card
+    TITLE: '.title', // The title text within a card
+    DETAILS_ELEMENT: 'small' // Elements containing director and year/country info
 };
 
 /**
- * CSS selectors for scraping the SIFF Film Finder website.
+ * CSS selectors for scraping the SIFF (Seattle International Film Festival) Film Finder list pages.
  * @type {object}
- * @property {string} FILM_LIST_CONTAINER - Selector for the main div holding all film items (e.g., "div.row.filtered-index").
- * @property {string} MOVIE_ITEM_WRAPPER - Selector for the wrapper of each individual film item (e.g., "div.col-xs-6.col-sm-4.col-md-3").
- * @property {string} TITLE - Selector for the film title element within a movie item.
- * @note SIFF list pages typically do not display the release year directly with each item.
- * The scraper for this site primarily extracts titles.
+ * @property {string} FILM_LIST_CONTAINER - Selector for the main div holding all film items on a list page (e.g., "div.row.filtered-index").
+ * @property {string} MOVIE_ITEM_WRAPPER - Selector for the wrapper of each individual film item on the list page.
+ * @property {string} TITLE_ON_LIST_PAGE - Selector for the film title element as it appears on the list page.
+ * @property {string} DETAIL_PAGE_LINK - Selector for the `<a>` tag within a movie item that links to the film's detail page.
  */
 export const SIFF_SELECTORS = {
-    FILM_LIST_CONTAINER: 'div.row.filtered-index', // The div that contains all the film columns
-    MOVIE_ITEM_WRAPPER: 'div.row.filtered-index > div.col-xs-6', // Each column holding a film
-    TITLE: 'a.tw-group span span.tw-text-2xl.tw-font-bold' 
+    FILM_LIST_CONTAINER: 'div.row.filtered-index',
+    MOVIE_ITEM_WRAPPER: 'div.row.filtered-index > div.col-xs-6', // Targets columns directly under the container
+    TITLE_ON_LIST_PAGE: 'a.tw-group span span.tw-text-2xl.tw-font-bold',
+    DETAIL_PAGE_LINK: 'a.tw-group' 
+};
+
+/**
+ * CSS selectors for scraping individual film detail pages on the SIFF website.
+ * @type {object}
+ * @property {string} YEAR_INFO_PARAGRAPH - Selector for the `<p class="small">` element that typically
+ * contains metadata like year, country, duration, and director. The year is extracted from this paragraph.
+ */
+export const SIFF_DETAIL_SELECTORS = {
+    YEAR_INFO_PARAGRAPH: 'div.col-sm-8 > p.small'
 };
 
 // -----------------------------------------------------------------------------
