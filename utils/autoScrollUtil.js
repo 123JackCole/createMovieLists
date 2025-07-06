@@ -1,4 +1,12 @@
 /**
+ * @file A library of scrolling utility functions for Puppeteer.
+ */
+
+// =============================================================================
+// GENERIC INFINITE SCROLL UTILITY
+// =============================================================================
+
+/**
  * Asynchronously scrolls a Puppeteer page to the bottom, attempting to load all dynamically
  * loaded content (e.g., "infinite scroll" pages).
  *
@@ -14,117 +22,199 @@
  * @function autoScroll
  * @param {import('puppeteer').Page} page - The Puppeteer Page object to scroll.
  * @param {object} [options={}] - Optional configuration for the scrolling behavior.
- * @param {number} [options.scrollDelay=1000] - Time in milliseconds to wait after each scroll
- * for new content to potentially load before checking height.
+ * @param {number} [options.scrollDelay=1000] - Time in milliseconds to wait after each scroll.
  * @param {number} [options.stabilityChecks=3] - The number of consecutive times the scrollHeight
  * must remain unchanged to consider the page fully scrolled.
- * @param {number} [options.maxScrolls=50] - The maximum number of scroll attempts to make. This acts as
- * a safeguard against infinite loops on pages that continuously load
- * content or where the stability check might not trigger.
- * @param {number} [options.initialScrolls=1] - The number of quick, initial scrolls to perform at the
- * very beginning. This can help "kickstart" lazy-loading
- * mechanisms on some pages.
- * @returns {Promise<void>} A promise that resolves when the scrolling process is considered complete
- * (either stable, max scrolls reached, or timeout). It rejects if a
- * critical error occurs during the `page.evaluate` call itself.
- * @throws {Error} If a critical error occurs during the `page.evaluate()` call from the Node.js side.
+ * @param {number} [options.maxScrolls=50] - The maximum number of scroll attempts to make.
+ * @param {number} [options.initialScrolls=1] - The number of quick, initial scrolls to perform.
+ * @returns {Promise<void>} A promise that resolves when the scrolling process is complete.
+ * @throws {Error} If a critical error occurs during the `page.evaluate()` call.
  */
 export const autoScroll = async (page, options = {}) => {
-    // Destructure options with default values.
-    // These defaults can be tuned based on typical website behavior.
     const {
-        scrollDelay = 1000,      // Default: 1 second wait after each scroll.
-        stabilityChecks = 3,    // Default: Page height must be stable for 3 checks.
-        maxScrolls = 50,        // Default: Max 50 scroll attempts.
-        initialScrolls = 1      // Default: 1 initial quick scroll.
+        scrollDelay = 1000,
+        stabilityChecks = 3,
+        maxScrolls = 50,
+        initialScrolls = 1
     } = options;
 
     try {
-        // Execute the scrolling logic within the browser's context.
-        // All parameters (scrollDelay, etc.) are passed into this browser-side function.
         await page.evaluate(
             async (pScrollDelay, pStabilityChecks, pMaxScrolls, pInitialScrolls) => {
-                // This function runs in the browser, not in Node.js.
-                // It uses a Promise to manage the asynchronous scrolling loop.
-                await new Promise((resolve, reject) => {
-                    let lastHeight = 0;           // Stores the scrollHeight from the previous check.
-                    let scrollsAttempted = 0;     // Counter for scroll attempts.
-                    let stableCount = 0;          // Counter for consecutive stable height checks.
-                    let totalTimeElapsedInEvaluate = 0; // Tracks time to prevent getting stuck indefinitely.
-                    
-                    // Calculate a generous overall timeout for the browser-side logic.
-                    // This is a safeguard within page.evaluate itself.
-                    const browserContextOverallTimeout = pMaxScrolls * (pScrollDelay + 500); // Add a buffer per scroll.
-
-                    // Recursive function to perform a scroll attempt and check for stability.
+                await new Promise((resolve) => {
+                    let lastHeight = 0;
+                    let scrollsAttempted = 0;
+                    let stableCount = 0;
                     const attemptScroll = () => {
-                        // Check if the browser-side logic has been running too long.
-                        if (totalTimeElapsedInEvaluate > browserContextOverallTimeout) {
-                            console.warn('[AutoScroll Browser] WARN: Overall timeout reached within page.evaluate.');
-                            resolve(); // Resolve the promise to finish.
-                            return;
-                        }
-
                         const currentHeight = document.body.scrollHeight;
-                        window.scrollTo(0, currentHeight); // Scroll to the current bottom of the page.
+                        window.scrollTo(0, currentHeight);
                         scrollsAttempted++;
-
-                        // Wait for `pScrollDelay` milliseconds to allow new content to load.
                         setTimeout(() => {
-                            totalTimeElapsedInEvaluate += pScrollDelay; // Increment time tracker.
                             const newHeight = document.body.scrollHeight;
-
                             if (newHeight === lastHeight) {
-                                // Page height hasn't changed, increment stability counter.
                                 stableCount++;
                                 if (stableCount >= pStabilityChecks) {
-                                    // Page height has been stable for the required number of checks.
                                     console.log(`[AutoScroll Browser] INFO: Page height stable at ${newHeight}px after ${scrollsAttempted} scrolls.`);
-                                    resolve(); // Scrolling is complete.
+                                    resolve();
                                     return;
                                 }
                             } else {
-                                // Page height changed, so reset stability counter and update lastHeight.
                                 stableCount = 0;
                                 lastHeight = newHeight;
                             }
-
-                            // Check if maximum scroll attempts have been reached.
                             if (scrollsAttempted >= pMaxScrolls) {
-                                console.warn(`[AutoScroll Browser] WARN: Reached max scrolls (${pMaxScrolls}). Assuming end of page at ${newHeight}px.`);
-                                resolve(); // Stop scrolling.
+                                console.warn(`[AutoScroll Browser] WARN: Reached max scrolls (${pMaxScrolls}).`);
+                                resolve();
                                 return;
                             }
-
-                            // If not done, schedule the next scroll attempt.
                             attemptScroll();
                         }, pScrollDelay);
                     };
-
-                    // Perform initial quick scrolls to trigger lazy loading further down.
                     (async () => {
                         for (let i = 0; i < pInitialScrolls; i++) {
                             window.scrollTo(0, document.body.scrollHeight);
-                            // Brief pause for the DOM to react to the initial scrolls.
-                            await new Promise(r => setTimeout(r, 100)); 
+                            await new Promise(r => setTimeout(r, 100));
                         }
-                        // Set the initial height after these quick scrolls.
                         lastHeight = document.body.scrollHeight;
-                        // Start the main recursive scrolling loop.
                         attemptScroll();
                     })();
                 });
             },
-            // Pass Node.js variables as arguments to the page.evaluate function.
             scrollDelay,
             stabilityChecks,
             maxScrolls,
             initialScrolls
         );
     } catch (error) {
-        // This catch block handles errors from the `page.evaluate` call itself
-        // (e.g., if the page closes unexpectedly, context is destroyed, or an error is thrown from within the promise in evaluate).
         console.error(`[AutoScrollUtil] ERROR: Error during page.evaluate for auto-scrolling: ${error.message}`, error.stack || '');
-        throw new Error(`Failed to auto-scroll: ${error.message}`); // Re-throw to be handled by the caller.
+        throw new Error(`Failed to auto-scroll: ${error.message}`);
     }
 };
+
+
+// =============================================================================
+// ELEMENT-AWARE SCROLL UTILITY FOR REACT/JS-HEAVY SITES
+// =============================================================================
+
+/**
+ * Scrolls a page in controlled steps to trigger viewport-based rendering, which is common
+ * on modern JavaScript sites (e.g., React virtualized lists).
+ *
+ * This function is "element-aware." Instead of checking page height, it monitors the count of
+ * rendered elements against a total number of expected container elements. It scrolls in small,
+ * controlled chunks to ensure components in the viewport have time to render, avoiding timeouts
+ * and handling lazy-loading more effectively than a simple scroll-to-bottom approach.
+ *
+ * @async
+ * @function scrollAndRenderReact
+ * @param {import('puppeteer').Page} page - The Puppeteer page object.
+ * @param {object} options - Configuration for the scrolling behavior.
+ * @param {string} options.renderedElSelector - The CSS selector for the elements that are dynamically rendered.
+ * @param {string} options.totalElSelector - The CSS selector for the container elements that indicate the total number of items.
+ * @returns {Promise<number>} A promise that resolves to the final count of rendered elements.
+ */
+export const scrollAndRenderReact = async (page, options) => {
+    const {
+        renderedElSelector,
+        totalElSelector
+    } = options;
+
+    // Enhanced scrolling parameters for better component rendering
+    const scrollStep = 200;
+    const scrollDelay = 1500;
+    const maxScrolls = 300;
+    const stabilityChecks = 10;
+    const chunkSize = 5;
+    
+    let totalScrollsAttempted = 0;
+    let lastReactCount = 0;
+    let stableCount = 0;
+    
+    let currentState = await page.evaluate((renderedSel, totalSel) => ({
+        reactComponents: document.querySelectorAll(renderedSel).length,
+        totalContainers: document.querySelectorAll(totalSel).length,
+        scrollHeight: document.body.scrollHeight,
+        scrollTop: window.pageYOffset
+    }), renderedElSelector, totalElSelector);
+    
+    while (totalScrollsAttempted < maxScrolls) {
+        const scrollsInThisChunk = Math.min(chunkSize, maxScrolls - totalScrollsAttempted);
+        
+        const chunkResult = await page.evaluate(async (p) => {
+            let scrollsAttempted = 0;
+            let currentScroll = p.currentScrollTop;
+            
+            while (scrollsAttempted < p.scrollsInThisChunk) {
+                const docHeight = document.body.scrollHeight;
+                const windowHeight = window.innerHeight;
+                const nextScroll = Math.min(currentScroll + p.scrollStep, docHeight - windowHeight);
+                
+                window.scrollTo({ top: nextScroll, behavior: 'smooth' });
+                currentScroll = nextScroll;
+                scrollsAttempted++;
+                
+                await new Promise(resolve => setTimeout(resolve, p.scrollDelay));
+                
+                if (nextScroll >= docHeight - windowHeight) {
+                    break;
+                }
+            }
+            
+            return {
+                reactComponents: document.querySelectorAll(p.renderedSel).length,
+                totalContainers: document.querySelectorAll(p.totalSel).length,
+                scrollHeight: document.body.scrollHeight,
+                scrollTop: window.pageYOffset,
+                scrollsInChunk: scrollsAttempted
+            };
+        }, { 
+            scrollStep, 
+            scrollDelay, 
+            scrollsInThisChunk, 
+            currentScrollTop: currentState.scrollTop, 
+            renderedSel: renderedElSelector, 
+            totalSel: totalElSelector 
+        });
+        
+        totalScrollsAttempted += chunkResult.scrollsInChunk;
+        
+        // Check if all components are rendered
+        if (chunkResult.reactComponents >= chunkResult.totalContainers) {
+            break;
+        }
+        
+        // Enhanced stability checking - only stop if we have reasonable completion rate
+        if (chunkResult.reactComponents === lastReactCount) {
+            stableCount++;
+            if (stableCount >= stabilityChecks) {
+                // Only break if we have a reasonable percentage OR we've tried many scrolls
+                if (chunkResult.reactComponents >= chunkResult.totalContainers * 0.8 || totalScrollsAttempted >= maxScrolls * 0.8) {
+                    break;
+                } else {
+                    // Reset stability count to keep trying when completion rate is low
+                    stableCount = 0;
+                }
+            }
+        } else {
+            stableCount = 0;
+            lastReactCount = chunkResult.reactComponents;
+        }
+        
+        currentState = chunkResult;
+        
+        // Check if we've reached the bottom of the page
+        const windowHeight = await page.evaluate(() => window.innerHeight);
+        if (chunkResult.scrollTop >= chunkResult.scrollHeight - windowHeight) {
+            break;
+        }
+        
+        // Wait between scroll chunks to allow for rendering
+        await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    // Final wait to ensure all components are stable
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    const finalCount = await page.evaluate((sel) => document.querySelectorAll(sel).length, renderedElSelector);
+    
+    return finalCount;
+}

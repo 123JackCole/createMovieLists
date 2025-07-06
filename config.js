@@ -23,14 +23,22 @@
  * @property {string} VINEGAR_SYNDROME_4K - Base URL for Vinegar Syndrome 4K UHD releases (paginated).
  * @property {string} MASTERS_OF_CINEMA - Base URL for Masters of Cinema list (paginated with hash).
  * @property {string} SIFF - Base URL for the SIFF Film Finder (paginated).
- */
+ * @property {string} LETTERBOXD.INDUSTRY - Base URL for the Letterboxd Industry List.
+ * @property {string} LETTERBOXD.READERS - Base URL for the Letterboxd Reader List.
+ * @property {string} LETTERBOXD.CRITERION - Base URL for the Letterboxd Criterion List.
+*/
 export const SCRAPER_URLS = {
     CRITERION: 'https://www.criterion.com/shop/browse/list?sort=spine_number&format=blu-ray,dvd',
     CRITERION_4K: 'https://www.criterion.com/shop/browse/list?sort=spine_number&format=4k_ultra_hd',
     VINEGAR_SYNDROME: 'https://vinegarsyndrome.com/collections/all-vinegar-syndrome-releases?filter.p.product_type=Blu-ray&filter.p.product_type=Blu-ray%2FDVD%20Combo&filter.p.product_type=DVD&filter.p.product_type=VHS&page=',
     VINEGAR_SYNDROME_4K: 'https://vinegarsyndrome.com/collections/all-vinegar-syndrome-releases?filter.p.product_type=4k%20Ultra%20HD%2FBlu-ray%20Combo&page=',
     MASTERS_OF_CINEMA: 'https://eurekavideo.co.uk/masters-of-cinema/#page-',
-    SIFF: 'https://www.siff.net/festival/film-finder-2025?page='
+    SIFF: 'https://www.siff.net/festival/film-finder-2025?page=',
+    LETTERBOXD: {
+        INDUSTRY: 'https://letterboxd.com/hetchy/list/the-new-york-times-100-best-movies-of-the/',
+        READERS: 'https://letterboxd.com/hetchy/list/the-nytimes-readers-500-top-movies-of-the/',
+        CRITERION: 'https://letterboxd.com/hetchy/list/r-criterions-100-best-films-of-the-21st-century/'
+    }
 };
 
 /**
@@ -118,7 +126,7 @@ export const SIFF_SELECTORS = {
     FILM_LIST_CONTAINER: 'div.row.filtered-index',
     MOVIE_ITEM_WRAPPER: 'div.row.filtered-index > div.col-xs-6', // Targets columns directly under the container
     TITLE_ON_LIST_PAGE: 'a.tw-group span span.tw-text-2xl.tw-font-bold',
-    DETAIL_PAGE_LINK: 'a.tw-group' 
+    DETAIL_PAGE_LINK: 'a.tw-group'
 };
 
 /**
@@ -129,6 +137,21 @@ export const SIFF_SELECTORS = {
  */
 export const SIFF_DETAIL_SELECTORS = {
     YEAR_INFO_PARAGRAPH: 'div.col-sm-8 > p.small'
+};
+
+/**
+ * CSS selectors for scraping Letterboxd list pages.
+ * @type {object}
+ * @property {string} MOVIE_LIST_CONTAINER - The main <ul> element holding the entire grid of posters.
+ * @property {string} FILM_ITEM_CONTAINER - The <li> element that acts as a placeholder for each film. Used to get the total count.
+ * @property {string} RENDERED_COMPONENT - The actual <div> React component that is lazy-loaded inside the container.
+ * @property {string} TITLE_DATA_ANCHOR - The <a> tag within the component that holds the title and year in its 'data-original-title' attribute.
+ */
+export const LETTERBOXD_SELECTORS = {
+    MOVIE_LIST_CONTAINER: 'ul.js-list-entries.poster-list',
+    FILM_ITEM_CONTAINER: 'li.poster-container',
+    RENDERED_COMPONENT: 'div.react-component.poster.film-poster',
+    TITLE_DATA_ANCHOR: 'a.frame[data-original-title]',
 };
 
 // -----------------------------------------------------------------------------
@@ -147,9 +170,3 @@ export const TMDB_API_CONFIG = {
     BASE_URL_V3: 'https://api.themoviedb.org/3', // Used for movie/collection searching
     BASE_URL_V4: 'https://api.themoviedb.org/4', // Used for list management and user authentication
 };
-
-// Example of how you might store other app-wide constants:
-// export const APP_SETTINGS = {
-//     DEFAULT_RETRY_ATTEMPTS: 3,
-//     DEFAULT_TIMEOUT_MS: 30000,
-// };

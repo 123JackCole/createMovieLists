@@ -3,6 +3,7 @@ import { scrapeVinegarSyndrome } from './scrapeVinegarSyndrome.js';
 import { scrapeMastersOfCinema } from './scrapeMastersOfCinema.js';
 import { scrapeSiff } from './scrapeSIFF.js';
 import { SCRAPER_URLS } from '../config.js'; // URLs for each scraping task
+import { scrapeLetterboxdList } from './scrapeLetterboxd.js';
 
 const LOG_PREFIX = "[ScrapersOrchestrator]";
 
@@ -41,7 +42,10 @@ export const scrapeWebsites = async (browser) => {
         { name: "Vinegar Syndrome (Blu-ray/DVD)", func: scrapeVinegarSyndrome, url: SCRAPER_URLS.VINEGAR_SYNDROME, key: 'vsMovies' },
         { name: "Vinegar Syndrome (4K UHD)", func: scrapeVinegarSyndrome, url: SCRAPER_URLS.VINEGAR_SYNDROME_4K, key: 'vs4kMovies' },
         { name: "Masters of Cinema", func: scrapeMastersOfCinema, url: SCRAPER_URLS.MASTERS_OF_CINEMA, key: 'mocMovies' },
-        { name: "SIFF Film Finder", func: scrapeSiff, url: SCRAPER_URLS.SIFF, key: 'siffMovies' }
+        { name: "SIFF Film Finder", func: scrapeSiff, url: SCRAPER_URLS.SIFF, key: 'siffMovies' },
+        { name: "Letterboxd NYT Industry", func: scrapeLetterboxdList, url: SCRAPER_URLS.LETTERBOXD.INDUSTRY, key: 'lbiMovies' },
+        { name: "Letterboxd NYT Readers", func: scrapeLetterboxdList, url: SCRAPER_URLS.LETTERBOXD.READERS, key: 'lbrMovies' },
+        { name: "Letterboxd NYT Criterion", func: scrapeLetterboxdList, url: SCRAPER_URLS.LETTERBOXD.CRITERION, key: 'lbcMovies' }
     ];
 
     // Create an array of promises by calling each scraper function.

@@ -1,3 +1,4 @@
+import { autoScroll } from '../utils/autoScrollUtil.js';
 import { ignoreMedia } from "../utils/ignoreMedia.js";
 import { VINEGAR_SYNDROME_SELECTORS, VINEGAR_SYNDROME_DETAIL_SELECTORS } from "../config.js";
 
@@ -24,9 +25,10 @@ const CONCURRENT_DETAIL_PAGES = 5;
  * For collections, this array can contain multiple film objects. For single items, it usually contains one.
  */
 const scrapeVsDetailPage = async (detailPage, mainProductTitleFromList) => {
-    const FN_NAME_BROWSER = "scrapeVsDetailPage-BrowserContext"; // For browser-side console logs
+     // For browser-side console logs
     // This function's core logic is executed in the browser's context.
     return await detailPage.evaluate((detailPageSelectors, productTitleFromList) => {
+        const FN_NAME_BROWSER = "scrapeVsDetailPage-BrowserContext";
         const extractedFilms = [];
         const descriptionContainer = document.querySelector(detailPageSelectors.DESCRIPTION_CONTAINER);
         
@@ -157,6 +159,15 @@ export const scrapeVinegarSyndrome = async (browser, baseUrl) => {
 
             try {
                 await listPage.goto(currentListUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+
+                // Scroll the page to ensure all dynamically loaded items are present
+                // console.log(`${LOG_PREFIX} DEBUG: Starting autoScroll for VS Page ${pageNum}`);
+                await autoScroll(listPage, { 
+                    scrollDelay: 1200,    // Custom options for autoScroll if needed
+                    stabilityChecks: 2,
+                    maxScrolls: 40 
+                });
+                // console.log(`${LOG_PREFIX} DEBUG: Finished autoScroll for VS Page ${pageNum}. Evaluating content...`);
 
                 // Extract product titles and their detail page URLs from the current list page
                 const productsOnListPage = await listPage.evaluate((listPageSelectors) => {

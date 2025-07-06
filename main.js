@@ -46,6 +46,7 @@ const main = async () => {
         console.log(`${LOG_PREFIX} INFO: Launching Puppeteer browser...`);
         browser = await puppeteer.launch({
             // headless: false, // Uncomment for debugging to see the browser UI
+            protocolTimeout: 30000, // Added since Puppeteer would sometimes timeout
             // args: ['--no-sandbox', '--disable-setuid-sandbox'] // Useful for some CI/Linux environments
         });
         console.log(`${LOG_PREFIX} INFO: Browser launched successfully.`);
