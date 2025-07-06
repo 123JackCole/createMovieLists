@@ -50,13 +50,13 @@ export const addListMetadata = ({
     const siffTitle = 'SIFF 2025 Film Festival';
     const siffDescription = 'Movies in the 2025 SIFF film festival. Source: https://www.siff.net/festival/film-finder-2025';
 
-    const lbiTitle = 'Letterbox NYT Industry 21st Century Top 100';
+    const lbiTitle = 'NYT Industry 21st Century Top 100';
     const lbiDescription = 'Movies in the NYT Industry 21st Century Top 100.';
 
-    const lbrTitle = 'Letterbox NYT Reader 21st Century Top 100';
+    const lbrTitle = 'NYT Reader 21st Century Top 100';
     const lbrDescription = 'Movies in the NYT Reader 21st Century Top 100.';
 
-    const lbcTitle = 'Letterbox r/Criterion 21st Century Top 100';
+    const lbcTitle = 'r/Criterion 21st Century Top 100';
     const lbcDescription = 'Movies in the r/Criterion 21st Century Top 100.';
 
     // Initialize an array to hold the structured data for each list.
