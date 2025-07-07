@@ -1,6 +1,6 @@
 import { scrollAndRenderReact } from "../utils/autoScrollUtil.js";
 import { ignoreMedia } from "../utils/ignoreMedia.js";
-import { LETTERBOXD_SELECTORS } from '../config.js';
+import { LETTERBOXD_SELECTORS } from '../config/config.js';
 
 const LOG_PREFIX = "[LetterboxdScraper]";
 

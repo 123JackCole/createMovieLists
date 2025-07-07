@@ -2,7 +2,7 @@ import { scrapeCriterionCollection } from './scrapeCriterionCollection.js';
 import { scrapeVinegarSyndrome } from './scrapeVinegarSyndrome.js';
 import { scrapeMastersOfCinema } from './scrapeMastersOfCinema.js';
 import { scrapeSiff } from './scrapeSIFF.js';
-import { SCRAPER_URLS } from '../config.js'; // URLs for each scraping task
+import { SCRAPER_URLS } from '../config/config.js'; // URLs for each scraping task
 import { scrapeLetterboxdList } from './scrapeLetterboxd.js';
 
 const LOG_PREFIX = "[ScrapersOrchestrator]";

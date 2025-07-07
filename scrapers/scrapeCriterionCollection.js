@@ -1,5 +1,6 @@
 import { ignoreMedia } from "../utils/ignoreMedia.js";
-import { CRITERION_SELECTORS, CRITERION_COLLECTION_DETAIL_SELECTORS } from '../config.js';
+import { CRITERION_SELECTORS, CRITERION_COLLECTION_DETAIL_SELECTORS } from '../config/config.js';
+import { filterBlacklistedFilms } from '../config/blacklist.js';
 
 const LOG_PREFIX = "[CriterionScraper]";
 
@@ -170,9 +171,17 @@ export const scrapeCriterionCollection = async (browser, url) => {
                 seenFilms.add(filmIdentifier);
             }
         }
+
+        // --- Phase 4: Filter out blacklisted films ---
+        const filteredFilms = filterBlacklistedFilms(uniqueFilms);
+        const blacklistedCount = uniqueFilms.length - filteredFilms.length;
         
-        console.log(`${LOG_PREFIX} INFO: Finished processing. Total unique films collected for ${url}: ${uniqueFilms.length} (from ${allFilmsOutput.length} initially processed).`);
-        return uniqueFilms; // Return the de-duplicated list of films
+        if (blacklistedCount > 0) {
+            console.log(`${LOG_PREFIX} INFO: Filtered out ${blacklistedCount} blacklisted film(s) from results.`);
+        }
+        
+        console.log(`${LOG_PREFIX} INFO: Finished processing. Total unique films collected for ${url}: ${filteredFilms.length} (from ${allFilmsOutput.length} initially processed, ${uniqueFilms.length} after deduplication).`);
+        return filteredFilms;
 
     } catch (error) { // Catch critical errors from the main try block (e.g., browser.newPage(), initial page.goto())
         console.error(`${LOG_PREFIX} CRITICAL ERROR: Failed to scrape Criterion Collection at URL "${url}": ${error.message}`, error.stack || '');

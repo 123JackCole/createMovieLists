@@ -1,4 +1,4 @@
-import { TMDB_API_CONFIG } from '../config.js';
+import { TMDB_API_CONFIG } from '../config/config.js';
 import { normalizeTitleForSearch } from '../utils/titleSanitizer.js';
 
 const LOG_PREFIX = "[TMDBApi]";

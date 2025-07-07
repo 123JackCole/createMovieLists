@@ -1,5 +1,5 @@
 import { ignoreMedia } from "../utils/ignoreMedia.js"; // Utility to block non-essential requests
-import { SIFF_SELECTORS, SIFF_DETAIL_SELECTORS } from '../config.js'; // Selectors from configuration
+import { SIFF_SELECTORS, SIFF_DETAIL_SELECTORS } from '../config/config.js'; // Selectors from configuration
 
 const LOG_PREFIX = "[SIFFScraper]";
 

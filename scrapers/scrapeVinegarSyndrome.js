@@ -1,6 +1,6 @@
 import { autoScroll } from '../utils/autoScrollUtil.js';
 import { ignoreMedia } from "../utils/ignoreMedia.js";
-import { VINEGAR_SYNDROME_SELECTORS, VINEGAR_SYNDROME_DETAIL_SELECTORS } from "../config.js";
+import { VINEGAR_SYNDROME_SELECTORS, VINEGAR_SYNDROME_DETAIL_SELECTORS } from "../config/config.js";
 
 const LOG_PREFIX = "[VinegarSyndromeScraper]";
 // Number of detail pages to process in parallel for each list page's results

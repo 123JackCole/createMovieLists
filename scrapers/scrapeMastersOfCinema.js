@@ -1,6 +1,6 @@
 import { autoScroll } from '../utils/autoScrollUtil.js';    // Utility for scrolling pages with dynamic content
 import { ignoreMedia } from '../utils/ignoreMedia.js';      // Utility to block non-essential requests
-import { MASTERS_OF_CINEMA_SELECTORS } from '../config.js'; // Selectors from configuration
+import { MASTERS_OF_CINEMA_SELECTORS } from '../config/config.js'; // Selectors from configuration
 
 const LOG_PREFIX = "[MastersOfCinemaScraper]";
 
