@@ -1,6 +1,7 @@
 import { authenticateForTMDB } from './tmdbAuth.js';
 import { createOrUpdateList } from './tmdbApi.js'; // This returns detailed stats
-import { writeFailureReport } from '../utils/reportWriter.js';
+import { writeFailureReport } from '../utils/failureReportWriter.js';
+import { writeMultipleMatchesReport } from '../utils/multipleMatchesReportWriter.js';
 
 const LOG_PREFIX = "[TMDBWorkflow]";
 
@@ -48,7 +49,11 @@ export const processScrapedData = async (scrapedDataArray) => {
             itemsSuccessfullyAddedToTmdb: 0,
             status: 'Pending', // Initial status
             errorReason: null,
-            movieLookupFailures: { notFoundTitles: [], failedToSearchTitles: [] }
+            movieLookupFailures: { 
+                notFoundTitles: [], 
+                failedToSearchTitles: [], 
+                multipleMatches: [] 
+            }
         };
 
         // Validate essential listData properties
@@ -96,6 +101,7 @@ export const processScrapedData = async (scrapedDataArray) => {
     // --- Generate and Log Detailed List Processing Summary ---
     console.log(`\n${LOG_PREFIX} INFO: --- Detailed List Processing Summary ---`);
     const allMovieLookupFailuresForReport = {};
+    const allMultipleMatchesForReport = {};
     let grandTotalScraped = 0;
     let grandTotalTmdbIdsFound = 0;
     let grandTotalAttemptedAdd = 0;
@@ -124,6 +130,11 @@ export const processScrapedData = async (scrapedDataArray) => {
             (stats.movieLookupFailures.notFoundTitles?.length > 0 || stats.movieLookupFailures.failedToSearchTitles?.length > 0)) {
             allMovieLookupFailuresForReport[stats.title] = stats.movieLookupFailures;
         }
+
+        // Collect multiple matches for the report file
+        if (stats.movieLookupFailures && stats.movieLookupFailures.multipleMatches?.length > 0) {
+            allMultipleMatchesForReport[stats.title] = stats.movieLookupFailures.multipleMatches;
+        }
     });
     
     console.log("\n--- Grand Totals ---");
@@ -139,5 +150,13 @@ export const processScrapedData = async (scrapedDataArray) => {
     } else {
         console.log(`${LOG_PREFIX} INFO: No movie ID lookup failures to report across all lists.`);
     }
+
+    // Write the multiple matches report file if there are any multiple matches
+    if (Object.keys(allMultipleMatchesForReport).length > 0) {
+        await writeMultipleMatchesReport(allMultipleMatchesForReport);
+    } else {
+        console.log(`${LOG_PREFIX} INFO: No movies with multiple TMDB matches to report across all lists.`);
+    }
+
     console.log(`${LOG_PREFIX} INFO: TMDB data processing finished.`);
 };

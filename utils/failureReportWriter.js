@@ -78,9 +78,9 @@ export const writeFailureReport = async (failuresByListTitle) => {
     try {
         await fs.writeFile(reportFilename, reportContent);
         // Log success and the absolute path to the generated report file.
-        console.log(`\n---> [ReportWriter] INFO: Movie ID lookup failure report generated: ${path.resolve(reportFilename)}`);
+        console.log(`\n---> [FailureReportWriter] INFO: Movie ID lookup failure report generated: ${path.resolve(reportFilename)}`);
     } catch (error) {
         // Log an error if writing the file fails.
-        console.error(`[ReportWriter] ERROR: Failed to write movie ID lookup failure report to "${reportFilename}" - Error: ${error.message}`, error.stack || '');
+        console.error(`[FailureReportWriter] ERROR: Failed to write movie ID lookup failure report to "${reportFilename}" - Error: ${error.message}`, error.stack || '');
     }
 };

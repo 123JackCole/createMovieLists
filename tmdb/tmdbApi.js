@@ -316,11 +316,13 @@ const getMovieIdsFromTmdbCollection = async (apiKey, collectionId, collectionNam
 * successfulIds: Array<number>,
 * notFoundTitles: Array<{title: string, year: string|null}>,
 * failedToSearchTitles: Array<{title: string, year: string|null, reason: string, details?: string}>,
+* multipleMatches: Array<{originalTitle: string, originalYear: string|null, searchTerm: string, searchYear: string|null, selectedMovie: Object, allMatches: Array<Object>}>,
 * attemptedCount: number
 * }>} An object containing:
 * - `successfulIds`: An array of unique TMDB movie IDs found.
 * - `notFoundTitles`: An array of original movie objects that were not found on TMDB after all search attempts.
 * - `failedToSearchTitles`: An array of original movie objects for which a search attempt failed due to an error (e.g., missing API key, unexpected error).
+* - `multipleMatches`: An array of objects containing information about movies that had multiple TMDB matches.
 * - `attemptedCount`: The total number of movies from `moviesListParam` that were processed.
 */
 export const getMovieIds = async (moviesListParam) => {
@@ -329,12 +331,13 @@ export const getMovieIds = async (moviesListParam) => {
    // Robust check for moviesListParam type to prevent iteration errors
    if (!Array.isArray(moviesListParam)) {
        console.error(`${LOG_PREFIX} ERROR: [${FN_NAME}] Input 'moviesListParam' is not an array! Received type: ${typeof moviesListParam}, Value:`, moviesListParam);
-       return { successfulIds: [], notFoundTitles: [], failedToSearchTitles: [], attemptedCount: 0 };
+       return { successfulIds: [], notFoundTitles: [], failedToSearchTitles: [], multipleMatches: [], attemptedCount: 0 };
    }
 
    const successfulIds = new Set(); // Use a Set to automatically handle duplicate IDs
    const notFoundTitles = [];
    const failedToSearchTitles = [];
+   const multipleMatches = [];
    const apiKey = process.env.TMDB_API_KEY; // Ensure TMDB_API_KEY is loaded via dotenv
 
    console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Starting TMDB ID lookup for ${moviesListParam.length} movies.`);
@@ -349,8 +352,62 @@ export const getMovieIds = async (moviesListParam) => {
                reason: 'TMDB_API_KEY missing' 
            });
        });
-       return { successfulIds: [], notFoundTitles, failedToSearchTitles, attemptedCount: moviesListParam.length };
+       return { successfulIds: [], notFoundTitles, failedToSearchTitles, multipleMatches, attemptedCount: moviesListParam.length };
    }
+
+   /**
+     * Helper function to select the best movie from search results
+     * Prioritizes movies with higher vote counts, especially when multiple movies 
+     * have the same title and year
+     * @param {Array} results - Array of movie results from TMDB
+     * @param {string|null} searchYear - The year used in the search
+     * @returns {Object|null} Object containing selectedMovie, hasMultipleMatches, and allMatches
+     */
+    const selectBestMovie = (results, searchYear = null) => {
+        if (!results || results.length === 0) return null;
+        
+        // If searching with a specific year, filter results to that year first
+        let candidateMovies = results;
+        if (searchYear) {
+            const yearMatches = results.filter(r => r.release_date?.startsWith(searchYear));
+            if (yearMatches.length > 0) {
+                candidateMovies = yearMatches;
+            }
+        }
+        
+        // Store the original first movie before sorting to check if ordering changed
+        const originalFirstMovie = candidateMovies[0];
+        
+        // Sort by vote_count (descending) to get the most popular/well-known movie first
+        const sortedMovies = candidateMovies.sort((a, b) => {
+            const voteCountA = a.vote_count || 0;
+            const voteCountB = b.vote_count || 0;
+            return voteCountB - voteCountA;
+        });
+        
+        const selectedMovie = sortedMovies[0];
+        const hasMultipleMatches = candidateMovies.length > 1;
+        
+        // Check if the highest vote count movie was NOT the first result in the original order
+        // Only flag as problematic when we have multiple matches AND the order changed
+        const isProblematicOrdering = hasMultipleMatches && originalFirstMovie.id !== selectedMovie.id;
+        
+        // Log when multiple movies are found for better debugging
+        if (hasMultipleMatches) {
+            console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Multiple movies found, selected highest vote count: ID ${selectedMovie.id} ("${selectedMovie.title}") with ${selectedMovie.vote_count} votes`);
+            console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Other candidates: ${candidateMovies.slice(1).map(m => `ID ${m.id} ("${m.title}") - ${m.vote_count} votes`).join(', ')}`);
+            
+            if (isProblematicOrdering) {
+                console.log(`${LOG_PREFIX} WARN: [${FN_NAME}] TMDB ordering issue detected - highest vote count movie was not first result`);
+            }
+        }
+        
+        return {
+            selectedMovie,
+            hasMultipleMatches: isProblematicOrdering, // Only flag as "multiple matches" when ordering was problematic
+            allMatches: candidateMovies
+        };
+    };
 
    // Iterate over each movie scraped from the source websites
    for (const movie of moviesListParam) {
@@ -361,7 +418,6 @@ export const getMovieIds = async (moviesListParam) => {
        try {
            // Skip if the raw title itself is missing
            if (!rawTitle) {
-               // console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] Skipping movie with no raw title data:`, movie);
                failedToSearchTitles.push({ title: 'N/A (Title Missing)', year: rawScrapedYear || 'N/A', reason: 'Missing title data from scraper' });
                continue;
            }
@@ -370,12 +426,9 @@ export const getMovieIds = async (moviesListParam) => {
            const { sanitizedTitle: initialSanitizedTitle, searchYear: initialSearchYear, isLikelyCollection } = normalizeTitleForSearch(rawTitle, rawScrapedYear);
 
            if (!initialSanitizedTitle) {
-               // console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] Skipping movie because title became empty after initial sanitization (Original: "${rawTitle}"):`, movie);
                failedToSearchTitles.push({ title: rawTitle, year: rawScrapedYear || 'N/A', reason: 'Title became empty after initial sanitization' });
                continue;
            }
-           
-           // console.log(`${LOG_PREFIX} DEBUG: [${FN_NAME}] Processing: "${rawTitle}" (Scraped Year: ${rawScrapedYear || 'N/A'}) -> Initial Sanitized: "${initialSanitizedTitle}" (Search Year: ${initialSearchYear || 'None'}, Likely Collection: ${isLikelyCollection})`);
            
            // --- Attempt 1: Movie Search with initial sanitized title and year variations ---
            // Prepare an array of years to try: the initial search year, year+1, year-1, and null (for no year).
@@ -390,11 +443,9 @@ export const getMovieIds = async (moviesListParam) => {
                uniqueSearchYears.push(null);
            }
 
-
            for (const currentSearchYear of uniqueSearchYears) {
                if (movieFoundThisIteration) break; // If found in a previous year attempt, skip further year variations for this title
 
-               // console.log(`  [TMDBApi][${FN_NAME}] Attempting movie search for: "${initialSanitizedTitle}" with year: ${currentSearchYear || 'Any'}`);
                const encodedTitle = encodeURIComponent(initialSanitizedTitle);
                let movieSearchUrl = `${TMDB_API_CONFIG.BASE_URL_V3}/search/movie?api_key=${apiKey}&query=${encodedTitle}&include_adult=false&language=en-US&page=1`;
                if (currentSearchYear) {
@@ -408,15 +459,25 @@ export const getMovieIds = async (moviesListParam) => {
                        { movieTitle: initialSanitizedTitle, actionDescription: `search for movie "${initialSanitizedTitle}" (Year: ${currentSearchYear || 'Any'})` }
                    );
                    if (movieData.results?.length > 0) {
-                       let foundM = movieData.results[0]; // Default to the first, most relevant result from TMDB
-                       // If a specific year was used in the search, try to find an exact match within the results.
-                       if (currentSearchYear) {
-                           const yearMatch = movieData.results.find(r => r.release_date?.startsWith(currentSearchYear));
-                           if (yearMatch) foundM = yearMatch;
+                       const result = selectBestMovie(movieData.results, currentSearchYear);
+                       if (result) {
+                           const { selectedMovie, hasMultipleMatches, allMatches } = result;
+                           
+                           successfulIds.add(selectedMovie.id);
+                           movieFoundThisIteration = true;
+                           
+                           // Track multiple matches for reporting
+                           if (hasMultipleMatches) {
+                               multipleMatches.push({
+                                   originalTitle: rawTitle,
+                                   originalYear: rawScrapedYear,
+                                   searchTerm: initialSanitizedTitle,
+                                   searchYear: currentSearchYear,
+                                   selectedMovie,
+                                   allMatches
+                               });
+                           }
                        }
-                       // console.log(`    [TMDBApi][${FN_NAME}] SUCCESS: Found TMDB Movie ID ${foundM.id} ("${foundM.title}") for query "${initialSanitizedTitle}" (Year: ${currentSearchYear || 'Any'})`);
-                       successfulIds.add(foundM.id);
-                       movieFoundThisIteration = true;
                    }
                } catch (movieSearchError) {
                    // Errors from fetchWithRetry (after retries or for non-retryable issues) are already logged by it.
@@ -427,7 +488,6 @@ export const getMovieIds = async (moviesListParam) => {
            // --- Attempt 2: If not found and original title contained '&', split and search parts ---
            // This handles titles like "Film A & Film B" by searching for "Film A" and "Film B" separately.
            if (!movieFoundThisIteration && rawTitle.includes(' & ')) {
-               // console.log(`  [TMDBApi][${FN_NAME}] Movie not found for "${initialSanitizedTitle}". Original title contained '&', attempting to split and search parts.`);
                const parts = rawTitle.split(' & ').map(p => p.trim()).filter(p => p.length > 0);
                
                for (const partTitle of parts) {
@@ -446,7 +506,6 @@ export const getMovieIds = async (moviesListParam) => {
                    for (const currentPartSearchYear of uniquePartSearchYears) {
                        if (movieFoundThisIteration && parts.length > 1) break; // If one part is found, we might consider the original "multi-title" entry handled.
 
-                       // console.log(`    [TMDBApi][${FN_NAME}] Attempting movie search for part: "${partSanitized}" with year: ${currentPartSearchYear || 'Any'}`);
                        const encodedPartTitle = encodeURIComponent(partSanitized);
                        let partSearchUrl = `${TMDB_API_CONFIG.BASE_URL_V3}/search/movie?api_key=${apiKey}&query=${encodedPartTitle}&include_adult=false&language=en-US&page=1`;
                        if (currentPartSearchYear) partSearchUrl += `&year=${currentPartSearchYear}&primary_release_year=${currentPartSearchYear}`;
@@ -454,15 +513,27 @@ export const getMovieIds = async (moviesListParam) => {
                        try {
                            const movieData = await fetchWithRetry( partSearchUrl, { method: 'GET', headers: { accept: 'application/json' } }, { movieTitle: partSanitized, actionDescription: `search for movie part "${partSanitized}" (Year: ${currentPartSearchYear || 'Any'})` });
                            if (movieData.results?.length > 0) {
-                               let foundM = movieData.results[0];
-                               if (currentPartSearchYear) {
-                                   const yearMatch = movieData.results.find(r => r.release_date?.startsWith(currentPartSearchYear));
-                                   if (yearMatch) foundM = yearMatch;
+                               const result = selectBestMovie(movieData.results, currentPartSearchYear);
+                               if (result) {
+                                   const { selectedMovie, hasMultipleMatches, allMatches } = result;
+                                   
+                                   successfulIds.add(selectedMovie.id);
+                                   movieFoundThisIteration = true;
+                                   
+                                   // Track multiple matches for parts too
+                                   if (hasMultipleMatches) {
+                                       multipleMatches.push({
+                                           originalTitle: rawTitle,
+                                           originalYear: rawScrapedYear,
+                                           searchTerm: partSanitized,
+                                           searchYear: currentPartSearchYear,
+                                           selectedMovie,
+                                           allMatches
+                                       });
+                                   }
+                                   
+                                   if (uniquePartSearchYears.length > 1) break; // Found this part with a year, no need to try other years for *this part*.
                                }
-                               // console.log(`      [TMDBApi][${FN_NAME}] SUCCESS (part): Found TMDB Movie ID ${foundM.id} ("${foundM.title}") for part "${partSanitized}"`);
-                               successfulIds.add(foundM.id);
-                               movieFoundThisIteration = true; 
-                               if (uniquePartSearchYears.length > 1) break; // Found this part with a year, no need to try other years for *this part*.
                            }
                        } catch (partSearchError) { /* Logged by fetchWithRetry */ }
                    }
@@ -472,7 +543,6 @@ export const getMovieIds = async (moviesListParam) => {
 
            // --- Attempt 3: Collection Search (if still not found AND it's marked as likely a collection) ---
            if (!movieFoundThisIteration && isLikelyCollection) {
-               // console.log(`  [TMDBApi][${FN_NAME}] Movie/parts search yielded no results for "${initialSanitizedTitle}". Attempting collection search.`);
                // For collection search, the raw title (or a version more suitable for collection names) might be better.
                const collectionQuery = normalizeTitleForSearch(rawTitle, null).sanitizedTitle || rawTitle; 
                
@@ -480,7 +550,6 @@ export const getMovieIds = async (moviesListParam) => {
                if (collectionId) {
                    const collectionMovieIds = await getMovieIdsFromTmdbCollection(apiKey, collectionId, collectionQuery);
                    if (collectionMovieIds.length > 0) {
-                       // console.log(`    [TMDBApi][${FN_NAME}] Added ${collectionMovieIds.length} movies from collection "${collectionQuery}" for original title "${rawTitle}".`);
                        collectionMovieIds.forEach(id => successfulIds.add(id));
                        movieFoundThisIteration = true; // Mark as found (via collection this time)
                    }
@@ -489,7 +558,6 @@ export const getMovieIds = async (moviesListParam) => {
 
            // If after all attempts (direct movie, split parts, collection) the movie is still not found, add to notFoundTitles.
            if (!movieFoundThisIteration) {
-               // console.warn(`  [TMDBApi][${FN_NAME}] FINAL: No TMDB movies or collection parts found for: "${initialSanitizedTitle}" (Original: "${rawTitle}", Original year: ${rawScrapedYear || 'N/A'})`);
                notFoundTitles.push({ title: rawTitle, year: rawScrapedYear });
            }
 
@@ -499,11 +567,12 @@ export const getMovieIds = async (moviesListParam) => {
        }
    }
 
-   console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Finished TMDB ID lookup. Found: ${successfulIds.size} unique IDs, Not Found (original titles): ${notFoundTitles.length}, Failed Search (original titles): ${failedToSearchTitles.length}`);
+   console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Finished TMDB ID lookup. Found: ${successfulIds.size} unique IDs, Not Found (original titles): ${notFoundTitles.length}, Failed Search (original titles): ${failedToSearchTitles.length}, Multiple Matches: ${multipleMatches.length}`);
    return { 
        successfulIds: Array.from(successfulIds), // Convert Set to Array for the return value
        notFoundTitles, 
        failedToSearchTitles,
+       multipleMatches,
        attemptedCount: moviesListParam.length 
    };
 };
@@ -539,7 +608,7 @@ const updateList = async (accessToken, listData, idLookupResult) => {
     let listId;
 
     // Initialize stats and failures based on the pre-fetched ID lookup results
-    let movieLookupFailures = idLookupResult.movieLookupFailures || { notFoundTitles: [], failedToSearchTitles: [] };
+    let movieLookupFailures = idLookupResult.movieLookupFailures || { notFoundTitles: [], failedToSearchTitles: [], multipleMatches: [] };
     const movieIdsToUpdate = idLookupResult.successfulIds || []; // Ensure it's an array for .length and .slice
     let itemsAttemptedCount = movieIdsToUpdate.length; 
     let itemsSuccessfullyAddedOrConfirmedCount = 0; // Counts items successfully added OR already present
@@ -563,6 +632,53 @@ const updateList = async (accessToken, listData, idLookupResult) => {
                 console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] No movie IDs to add to list "${listTitle}". Skipping update.`);
             }
             return { itemsAttemptedCount, itemsSuccessfullyAddedCount: itemsSuccessfullyAddedOrConfirmedCount, movieLookupFailures };
+        }
+
+        console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Clearing list ID ${listId} ("${listTitle}") with ${itemsAttemptedCount} items to preserve order of movies.`);
+
+        const clearUrl = `${TMDB_API_CONFIG.BASE_URL_V4}/list/${listId}/clear`;
+        const clearOptions = {
+            method: 'GET',
+            headers: { 
+                accept: 'application/json', 
+                'content-type': 'application/json', 
+                Authorization: `Bearer ${accessToken.access_token}`
+            }
+        };
+
+        try {
+            const clearResponse = await fetchWithRetry(
+                clearUrl,
+                clearOptions,
+                { listTitle, actionDescription: `clearing list ID ${listId}` }
+            );
+            
+            // Verify the clear operation was successful
+            if (clearResponse && clearResponse.success !== false) {
+                console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Successfully cleared list "${listTitle}".`);
+            } else {
+                console.warn(`${LOG_PREFIX} WARN: [${FN_NAME}] Clear operation may not have succeeded for list "${listTitle}". Response:`, clearResponse);
+                // Consider whether to continue or throw an error based on your requirements
+            }
+            
+        } catch (clearError) {
+            console.error(`${LOG_PREFIX} ERROR: [${FN_NAME}] CRITICAL error clearing list "${listTitle}": ${clearError.message}`);
+            
+            // For auth errors, fail fast since subsequent operations will also fail
+            if (clearError.message.includes("(401)") || clearError.message.includes("(403)")) {
+                console.error(`${LOG_PREFIX} ERROR: [${FN_NAME}] Authentication/Authorization error during list clear. Cannot proceed.`);
+                const error = new Error(`Failed to clear list "${listTitle}" due to authentication error: ${clearError.message}`);
+                error.movieLookupFailures = movieLookupFailures;
+                error.itemsAttemptedCount = itemsAttemptedCount;
+                error.itemsSuccessfullyAddedCount = itemsSuccessfullyAddedOrConfirmedCount;
+                throw error;
+            }
+            
+            const error = new Error(`Failed to clear list "${listTitle}": ${clearError.message}`);
+            error.movieLookupFailures = movieLookupFailures;
+            error.itemsAttemptedCount = itemsAttemptedCount;
+            error.itemsSuccessfullyAddedCount = itemsSuccessfullyAddedOrConfirmedCount;
+            throw error;
         }
 
         console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] Preparing to update list ID ${listId} ("${listTitle}") with ${itemsAttemptedCount} items.`);
@@ -730,7 +846,11 @@ export const createOrUpdateList = async (accessToken, listData) => {
     let processingStats = {
         itemsAttemptedCount: 0,
         itemsSuccessfullyAddedCount: 0, // This will reflect items confirmed on the list
-        movieLookupFailures: { notFoundTitles: [], failedToSearchTitles: [] },
+        movieLookupFailures: { 
+            notFoundTitles: [], 
+            failedToSearchTitles: [], 
+            multipleMatches: [] 
+        },
         scrapedItemsCount: listData.movieData?.length || 0,
         tmdbIdsFoundCount: 0 // This will be set after getMovieIds
     };
@@ -759,7 +879,8 @@ export const createOrUpdateList = async (accessToken, listData) => {
         processingStats.tmdbIdsFoundCount = idLookupResult.successfulIds?.length || 0;
         processingStats.movieLookupFailures = {
             notFoundTitles: idLookupResult.notFoundTitles || [],
-            failedToSearchTitles: idLookupResult.failedToSearchTitles || []
+            failedToSearchTitles: idLookupResult.failedToSearchTitles || [],
+            multipleMatches: idLookupResult.multipleMatches || []
         };
         
         console.log(`${LOG_PREFIX} INFO: [${FN_NAME}] For list "${listData.title}", TMDB IDs found: ${processingStats.tmdbIdsFoundCount}. Original items for lookup: ${idLookupResult.attemptedCount}.`);
